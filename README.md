@@ -1,4 +1,4 @@
-# My Learned Inertial Model Odometry
+# My New Learned Inertial Model Odometry
 
 [![Learned Inertial Model Odometry](img/intro_github.png)](https://youtu.be/DHQzaDVWXrc)
 
