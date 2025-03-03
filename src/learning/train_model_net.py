@@ -53,6 +53,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         # targ = [dp]
         # dims = [batch size, 3]
 
+        # TODO: 将window内的初始速度v_init作为网络输入，目前的初始速度扰动比较大，修改
         feat = feat.to(device)
         v_init = v_init.to(device)
         targ = targ.to(device)

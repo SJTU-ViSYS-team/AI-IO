@@ -19,7 +19,7 @@ def get_model(input_dim=6, output_dim=3):
         output_dim,
         [64, 64, 64, 64, 128, 128, 128],
         kernel_size=2,
-        dropout=0.5,
+        dropout=0.2,
         activation="GELU",
     )
     return network

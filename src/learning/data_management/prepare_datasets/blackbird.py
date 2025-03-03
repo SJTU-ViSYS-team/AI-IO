@@ -43,21 +43,21 @@ t_b_i = np.array([0., 0., 0.])
 
 # initial and final times
 train_times = {}
-train_times['clover/yawForward/maxSpeed5p0'] = [1525745925.0, 1525746016.0]
+train_times['clover/yawForward/maxSpeed5p0'] = [1525745925.0, 1525746016.0] # 91s
 train_times['halfMoon/yawForward/maxSpeed4p0'] = [1524899787.0, 1524899877.0]
 train_times['star/yawForward/maxSpeed5p0'] = [1525686067.0, 1525686107.0]
 train_times['egg/yawForward/maxSpeed8p0'] = [1560738505.0, 1560738575.0]
 train_times['winter/yawForward/maxSpeed4p0'] = [1525754484.0, 1525754584.0]
 
 val_times = {}
-val_times['clover/yawForward/maxSpeed5p0'] = [1525745895.0, 1525745925.0]
+val_times['clover/yawForward/maxSpeed5p0'] = [1525745895.0, 1525745925.0] # 30s
 val_times['halfMoon/yawForward/maxSpeed4p0'] = [1524899751.0, 1524899787.0]
 val_times['star/yawForward/maxSpeed5p0'] = [1525686042.0, 1525686067.0]
 val_times['egg/yawForward/maxSpeed8p0'] = [1560738480.0, 1560738505.0]
 val_times['winter/yawForward/maxSpeed4p0'] = [1525754454.0, 1525754484.0]
 
 test_times = {}
-test_times['clover/yawForward/maxSpeed5p0'] = [1525745865.0, 1525745895.0]
+test_times['clover/yawForward/maxSpeed5p0'] = [1525745865.0, 1525745895.0]# 30s
 test_times['halfMoon/yawForward/maxSpeed4p0'] = [1524899731.0, 1524899751.0]
 test_times['star/yawForward/maxSpeed5p0'] = [1525686026.0, 1525686042.0]
 test_times['egg/yawForward/maxSpeed8p0'] = [1560738457.0, 1560738480.0]
@@ -130,7 +130,7 @@ def prepare_dataset(args):
 
         data = []
         for data_i in data_tmp:
-            ts_i = data_i[0] * 1e-6
+            ts_i = data_i[0] * 1e-6 # convert us to s
             t_i = data_i[1:4]
             R_i = Rotation.from_quat(
                 np.array([data_i[5], data_i[6], data_i[7], data_i[4]])).as_matrix()
@@ -182,7 +182,7 @@ def prepare_dataset(args):
         while t_curr < raw_imu[-1, 0] - dt - 0.001:
             t_curr = t_curr + dt
             new_times_imu.append(t_curr)
-        new_times_imu = np.asarray(new_times_imu)
+        new_times_imu = np.asarray(new_times_imu) # 严格的100Hz时间序列
         gyro_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 1:4], axis=0)(new_times_imu)
         accel_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 4:7], axis=0)(new_times_imu)
         raw_imu = np.concatenate((new_times_imu.reshape((-1, 1)), gyro_tmp, accel_tmp), axis=1)

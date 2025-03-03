@@ -148,7 +148,7 @@ class ModelDataset(Dataset):
             self.index_map += [
                 [i, j]
                 for j in range(
-                    int(self.window_size * self.sampling_factor), 
+                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
                     N,
                     self.window_shift_size) 
                 ]

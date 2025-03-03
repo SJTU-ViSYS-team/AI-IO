@@ -41,7 +41,7 @@ def arg_conversion(args):
         sampling_factor = 1
         sampling_freq = imu_freq
 
-    window_size = int((args.window_time * imu_freq) / sampling_factor)
+    window_size = int((args.window_time * imu_freq) / sampling_factor) # sample counts
     if window_size < 1:
         raise ValueError("window_size less than 1. Try to increase sampling_freq.")
     
