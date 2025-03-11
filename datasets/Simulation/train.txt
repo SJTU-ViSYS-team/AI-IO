@@ -1,2 +1,2 @@
-# sim_line_add_noise_200Hz
-sim_line_add_noise_200Hz/processed_data/train
+# altitude_hold_noise_200s
+altitude_hold_noise_200s/processed_data/train

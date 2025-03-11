@@ -81,8 +81,8 @@ class ModelSequence(CompiledSequence):
         #     "Make sure that initial and final times correspond to first and last thrust measurement in %s!" % data_path
 
         # rotate to world frame
-        w_gyro_calib = np.array([pose.xyzwQuatToMat(T_wi[3:]) @ w_i for T_wi, w_i in zip(traj_target, gyro_calib)])
-        w_accel_calib = np.array([pose.xyzwQuatToMat(T_wi[3:]) @ a_i for T_wi, a_i in zip(traj_target, accel_calib)])
+        # w_gyro_calib = np.array([pose.xyzwQuatToMat(T_wi[3:]) @ w_i for T_wi, w_i in zip(traj_target, gyro_calib)])
+        # w_accel_calib = np.array([pose.xyzwQuatToMat(T_wi[3:]) @ a_i for T_wi, a_i in zip(traj_target, accel_calib)])
         # w_thrust = np.array([pose.xyzwQuatToMat(T_wi[3:]) @ t_i for T_wi, t_i in zip(traj_target, i_thrust)])
 
         self.ts = ts
@@ -90,7 +90,9 @@ class ModelSequence(CompiledSequence):
         self.accel_raw = accel_raw
         # self.thrust = thrust
         # self.feat = np.concatenate([w_gyro_calib, w_thrust], axis=1)
-        self.feat = np.concatenate([w_gyro_calib, w_accel_calib], axis=1)
+        # TODO: modify network input to euler angle and accel in i(b) frame
+        ypr = np.array([pose.fromQuatToEulerAng(targ[3:7]) for targ in traj_target]) / 180.0 * np.pi
+        self.feat = np.concatenate([ypr, accel_calib], axis=1)
         self.traj_target = traj_target
 
     def get_feature(self):
@@ -185,10 +187,11 @@ class ModelDataset(Dataset):
         pw0p1 = self.targets[seq_id][idxs+1][0:3]
         vw0 = (pw0p1 - pw0m1) / (t0p1 - t0m1)
 
-        # pos
-        pw0 = self.targets[seq_id][idxs][0:3]
-        pw1 = self.targets[seq_id][idxe][0:3]
-        targ = pw1 - pw0
+        # # pos
+        # pw0 = self.targets[seq_id][idxs][0:3]
+        # pw1 = self.targets[seq_id][idxe][0:3]
+        # targ = pw1 - pw0
+        targ = self.targets[seq_id][idxe, 7:9]
 
         # auxiliary variables
         feat_ts = self.ts[seq_id][indices]
@@ -203,37 +206,38 @@ class ModelDataset(Dataset):
             
         if self.mode == "train":
             # perturb biases
-            if self.perturb_bias:
-                random_bias = [
-                    (random.random() - 0.5) * self.gyro_bias_perturbation_range / 0.5,
-                    (random.random() - 0.5) * self.gyro_bias_perturbation_range / 0.5,
-                    (random.random() - 0.5) * self.gyro_bias_perturbation_range / 0.5,
-                ]
-                feat[:, 0] = feat[:, 0] + random_bias[0]
-                feat[:, 1] = feat[:, 1] + random_bias[1]
-                feat[:, 2] = feat[:, 2] + random_bias[2]
+            # if self.perturb_bias:
+            #     random_bias = [
+            #         (random.random() - 0.5) * self.gyro_bias_perturbation_range / 0.5,
+            #         (random.random() - 0.5) * self.gyro_bias_perturbation_range / 0.5,
+            #         (random.random() - 0.5) * self.gyro_bias_perturbation_range / 0.5,
+            #     ]
+            #     feat[:, 0] = feat[:, 0] + random_bias[0]
+            #     feat[:, 1] = feat[:, 1] + random_bias[1]
+            #     feat[:, 2] = feat[:, 2] + random_bias[2]
 
             if self.perturb_orientation:
-                vec_rand = np.array([np.random.normal(), np.random.normal(), np.random.normal()])
-                vec_rand = vec_rand / np.linalg.norm(vec_rand)
+                # vec_rand = np.array([np.random.normal(), np.random.normal(), np.random.normal()])
+                # vec_rand = vec_rand / np.linalg.norm(vec_rand)
 
                 theta_rand = (
                         random.random() * np.pi * self.perturb_orientation_theta_range / 180.0)
+                feat[:, 0:3] += theta_rand
                 # theta_deg = np.random.normal(self.perturb_orientation_mean, self.perturb_orientation_std)
                 # theta_rand = theta_deg * np.pi / 180.0
 
-                R_mat = pose.fromAngleAxisToRotMat(theta_rand, vec_rand)
+                # R_mat = pose.fromAngleAxisToRotMat(theta_rand, vec_rand)
 
-                feat[:, 0:3] = np.matmul(R_mat, feat[:, 0:3].T).T
-                feat[:, 3:6] = np.matmul(R_mat, feat[:, 3:6].T).T
+                # feat[:, 0:3] = np.matmul(R_mat, feat[:, 0:3].T).T
+                # feat[:, 3:6] = np.matmul(R_mat, feat[:, 3:6].T).T
 
             # perturb initial velocity
-            if self.perturb_init_vel:
-                dv = np.array([
-                    np.random.normal(scale=self.init_vel_sigma),
-                    np.random.normal(scale=self.init_vel_sigma),
-                    np.random.normal(scale=2*self.init_vel_sigma)])
-                vw0 = vw0 + dv
+            # if self.perturb_init_vel:
+            #     dv = np.array([
+            #         np.random.normal(scale=self.init_vel_sigma),
+            #         np.random.normal(scale=self.init_vel_sigma),
+            #         np.random.normal(scale=2*self.init_vel_sigma)])
+            #     vw0 = vw0 + dv
 
         return feat.astype(np.float32).T, vw0.astype(np.float32).T, targ.astype(np.float32), \
             feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T

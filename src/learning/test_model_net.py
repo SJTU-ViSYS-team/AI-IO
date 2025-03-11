@@ -244,7 +244,7 @@ def test(args):
         dp_learned_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), dp_learned), axis=1)
         dp_cov_learned = net_attr_dict["dp_cov_learned"]
         dp_cov_learned[dp_cov_learned<-4] = -4
-        for i in range(3):
+        for i in range(2):
             dp_cov_learned[:, i] = torch.exp(2 * torch.tensor(dp_cov_learned[:, i], dtype=torch.float32))
         dp_cov_learned_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), dp_cov_learned), axis=1)
 
@@ -267,7 +267,93 @@ def test(args):
             dp_targets = net_attr_dict["targets"]
             dp_errs = dp_learned - dp_targets
 
-            makeErrorPlot(dp_errs, dp_cov_learned)
+            plt.figure('Velocity')
+            plt.subplot(2, 1, 1)
+            plt.plot(dp_learned[:, 0], label="Learned x")
+            plt.plot(dp_targets[:, 0], label="Real x")
+            plt.legend()
+            plt.subplot(2, 1, 2)
+            plt.plot(dp_learned[:, 1], label="Learned y")
+            plt.plot(dp_targets[:, 1], label="Real y")
+            plt.legend()
+            # plt.subplot(3, 1, 3)
+            # plt.plot(dp_learned[:, 2], label="Learned z")
+            # plt.plot(dp_targets[:, 2], label="Real z")
+            # plt.legend()
+
+            plt.figure('Errors')
+            plt.subplot(2, 1, 1)
+            plt.plot(dp_errs[:, 0], label="x")
+            plt.legend()
+            plt.subplot(2, 1, 2)
+            plt.plot(dp_errs[:, 1], label="y")
+            plt.legend()
+            # plt.subplot(3, 1, 3)
+            # plt.plot(dp_errs[:, 2], label="z")
+            # plt.legend()
+
+            plt.figure('Std')
+            plt.subplot(2, 1, 1)
+            plt.plot(dp_cov_learned[:, 0], label="x")
+            plt.legend()
+            plt.subplot(2, 1, 2)
+            plt.plot(dp_cov_learned[:, 1], label="y")
+            plt.legend()
+            # plt.subplot(3, 1, 3)
+            # plt.plot(dp_cov_learned[:, 2], label="z")
+            # plt.legend()
+
+            # fig1 = plt.figure("Errors")
+            # gs = gridspec.GridSpec(3, 1)
+
+            # fig1.add_subplot(gs[0, 0])
+            # plt.plot(dp_errors[:,0], label='x')
+            # plt.grid()
+            # plt.legend()
+            # plt.xlabel('#')
+            # plt.ylabel('$[m]$')
+            # plt.title('Position errors')
+
+            # fig1.add_subplot(gs[1, 0])
+            # plt.plot(dp_errors[:,1], label='y')
+            # plt.grid()
+            # plt.legend()
+            # plt.xlabel('#')
+            # plt.ylabel('$[m]$')
+
+            # fig1.add_subplot(gs[2, 0])
+            # plt.plot(dp_errors[:,2], label='z')
+            # plt.grid()
+            # plt.legend()
+            # plt.xlabel('#')
+            # plt.ylabel('$[m]$')
+
+            # fig2 = plt.figure("Std")
+            # gs = gridspec.GridSpec(3, 1)
+
+            # fig2.add_subplot(gs[0, 0])
+            # plt.plot(np.sqrt(dp_cov[:,0]), label='x')
+            # plt.grid()
+            # plt.legend()
+            # plt.xlabel('#')
+            # plt.ylabel('$[m]$')
+            # plt.title('Position std')
+
+            # fig2.add_subplot(gs[1, 0])
+            # plt.plot(np.sqrt(dp_cov[:,1]), label='y')
+            # plt.grid()
+            # plt.legend()
+            # plt.xlabel('#')
+            # plt.ylabel('$[m]$')
+
+            # fig2.add_subplot(gs[2, 0])
+            # plt.plot(np.sqrt(dp_cov[:,2]), label='z')
+            # plt.grid()
+            # plt.legend()
+            # plt.xlabel('#')
+            # plt.ylabel('$[m]$')
+
+            # makeErrorPlot(dp_errs, dp_cov_learned)
 
             print("-- dp Errors --")
             print('x')
@@ -276,9 +362,9 @@ def test(args):
             print('y')
             print('mean = %.5f' % np.mean(dp_errs[:,1]))
             print('std = %.5f' % np.std(dp_errs[:,1]))
-            print('z')
-            print('mean = %.5f' % np.mean(dp_errs[:,2]))
-            print('std = %.5f' % np.std(dp_errs[:,2]))
+            # print('z')
+            # print('mean = %.5f' % np.mean(dp_errs[:,2]))
+            # print('std = %.5f' % np.std(dp_errs[:,2]))
 
             if args.show_plots:
                 plt.show()

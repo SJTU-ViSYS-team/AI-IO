@@ -1,0 +1,75 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main_learning.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--root_dir=datasets",
+                "--out_dir=results",
+                "--dataset=Simulation",
+                "--mode=train",
+                "--imu_freq=100",
+                "--sampling_freq=100",
+                "--window_time=0.5"
+            ]
+        },
+        {
+            "name": "test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main_learning.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--root_dir=datasets",
+                "--out_dir=results",
+                "--dataset=Simulation",
+                "--mode=test",
+                "--imu_freq=100",
+                "--sampling_freq=100",
+                "--window_time=0.5",
+                "--model_fn=checkpoint_413.pt",
+                "--show_plots"
+            ]
+        },
+        {
+            "name": "Main Filter",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/main_filter.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--root_dir=datasets",
+                "--out_dir=results",
+                "--dataset=Simulation",
+                "--data_list=test.txt",
+                "--checkpoint_fn=checkpoint_197.pt", //
+                "--model_param_fn=model_net_parameters.json"
+            ]
+        },
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset_dir=datasets/Simulation/",
+                "--data_list=data_list.txt"
+            ]
+        }
+    ]
+}
