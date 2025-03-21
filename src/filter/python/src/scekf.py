@@ -476,8 +476,8 @@ class ImuMSCKF:
 
     """
     Get innovation and jacobian for a learnt imu update
-    [in]: meas = p_wb1 - p_wb0, dims: 3
-    [in]: meas_cov = cov matrix. dims: 3x3. Not yet implemented. Using const cov.
+    [in]: meas = v_b, dims: 3
+    [in]: meas_cov = cov matrix. dims: 3x3.
     [in]: t_begin_us: time 0
     [in]: t_begin_us: time 1
     [out]: innovation
@@ -506,18 +506,22 @@ class ImuMSCKF:
         # symmetrize R
         R = 0.5 * (R + R.T)
         R[R < 1e-10] = 0
+        # R = R[:2, :2]
 
         # compute prediction
-        pred = self.state.si_ps[end_idx] - self.state.si_ps[begin_idx]
+        # pred = self.state.si_ps[end_idx] - self.state.si_ps[begin_idx]
+        pred = self.state.si_Rs[end_idx].T @ self.state.si_vs[end_idx]
 
         assert begin_idx < end_idx, "begin_idx is larger than end_idx!"
         assert (
             end_idx < self.state.N
         ), "end_idx is larger than the number of past states in the filter!"
         H = np.zeros((3, 15 + 9 * self.state.N))
-        H[:, (9 * begin_idx + 6) : (9 * begin_idx + 9)] = -np.eye(3)  # der. wrt pi
-        H[:, (9 * end_idx + 6) : (9 * end_idx + 9)] = np.eye(3)  # der. wrt pj
+        H[:, (9 * end_idx) : (9 * end_idx + 3)] = -hat(pred)
+        H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = self.state.si_Rs[end_idx].T
+        H = H[:2, :]
 
+        pred = pred[:2,:]
         assert (
             self.Sigma.shape[0] == H.shape[1]
         ), "state covariance and matrix H does not match shape!"
@@ -543,6 +547,7 @@ class ImuMSCKF:
                 self.last_success_mahalanobis = self.state.s_timestamp_us
 
         innovation = meas - pred
+        # innovation = innovation[:2]
         
         self.meas = meas
         self.pred = pred

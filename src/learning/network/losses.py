@@ -179,12 +179,10 @@ output:
   loss: Nx3
 """
 def get_loss(pred, pred_logstd, targ, epoch):
-    """
-    if epoch < 10:
-        loss = loss_mse(pred, targ)
-    else:
-        loss = loss_distribution_diag(pred, pred_logstd, targ)
-    """
+    # if epoch < 10:
+    #     loss = loss_mse(pred, targ)
+    # else:
+    #     loss = loss_distribution_diag(pred, pred_logstd, targ)
 
     if epoch < 10:
         pred_logstd = pred_logstd.detach()

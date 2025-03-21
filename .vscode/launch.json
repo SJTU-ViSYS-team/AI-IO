@@ -13,11 +13,11 @@
             "args": [
                 "--root_dir=datasets",
                 "--out_dir=results",
-                "--dataset=Simulation",
+                "--dataset=DIDO",
                 "--mode=train",
-                "--imu_freq=100",
-                "--sampling_freq=100",
-                "--window_time=0.5"
+                "--imu_freq=400",
+                "--sampling_freq=400",
+                "--window_time=1"
             ]
         },
         {
@@ -29,12 +29,12 @@
             "args": [
                 "--root_dir=datasets",
                 "--out_dir=results",
-                "--dataset=Simulation",
+                "--dataset=DIDO",
                 "--mode=test",
-                "--imu_freq=100",
-                "--sampling_freq=100",
-                "--window_time=0.5",
-                "--model_fn=checkpoint_413.pt",
+                "--imu_freq=400",
+                "--sampling_freq=400",
+                "--window_time=1",
+                "--model_fn=checkpoint_10.pt",
                 "--show_plots"
             ]
         },
@@ -47,10 +47,23 @@
             "args": [
                 "--root_dir=datasets",
                 "--out_dir=results",
-                "--dataset=Simulation",
+                "--dataset=DIDO",
                 "--data_list=test.txt",
-                "--checkpoint_fn=checkpoint_197.pt", //
+                "--checkpoint_fn=checkpoint_10.pt", //
                 "--model_param_fn=model_net_parameters.json"
+            ]
+        },
+        {
+            "name": "Filter Plot",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/filter/python/plot_filter_output.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset_dir=datasets",
+                "--result_dir=results",
+                "--dataset=DIDO",
+                "--seq=circle_a_2.2_v_3.5_r_1.5_yaw_2022-02-21-23-18-26"
             ]
         },
         {

@@ -24,6 +24,6 @@ def print_hdf5_structure(name, obj):
             print("  Partial data (first 10 items):", data.flat[:10])
 
 # 打开 HDF5 文件
-with h5py.File("/home/csf/learned_inertial_model_odometry/datasets/Simulation/sim1/processed_data/train/data.hdf5", "r") as file:
+with h5py.File("/home/csf/LearnedInertialOdometry/datasets/FPV/FPV_sim_hover/processed_data/train/data.hdf5", "r") as file:
     # 遍历并打印整个文件的结构和数据
     file.visititems(print_hdf5_structure)

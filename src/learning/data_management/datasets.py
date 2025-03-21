@@ -73,9 +73,19 @@ class ModelSequence(CompiledSequence):
             gyro_calib = np.copy(f["gyro_calib"])
             accel_raw = np.copy(f["accel_raw"])
             accel_calib = np.copy(f["accel_calib"])
-            # thrust = np.copy(f["thrust"])
-            # i_thrust = np.copy(f["i_thrust"])  # in imu frame
             traj_target = np.copy(f["traj_target"])
+
+            # # for DIDO data
+            # gyro_raw = np.copy(f["gyr"])
+            # gyro_calib = np.copy(f["gyr"])
+            # accel_raw = np.copy(f["acc"])
+            # accel_calib = np.copy(f["acc"])
+            # gt_p = np.copy(f["gt_p"])
+            # gt_q = np.copy(f["gt_q"])
+            # gt_q = np.hstack((gt_q[:, 1:], gt_q[:, 0:1]))
+            # gt_v = np.copy(f["gt_v"])
+            # gt_vb = np.array([pose.xyzwQuatToMat(q).T @ v for v, q in zip(gt_v, gt_q)])
+            # traj_target = np.hstack((gt_p, gt_q, gt_vb))
 
         # assert thrust.shape[0] == gyro_calib.shape[0], \
         #     "Make sure that initial and final times correspond to first and last thrust measurement in %s!" % data_path
@@ -187,10 +197,12 @@ class ModelDataset(Dataset):
         pw0p1 = self.targets[seq_id][idxs+1][0:3]
         vw0 = (pw0p1 - pw0m1) / (t0p1 - t0m1)
 
+        vb0 = self.targets[seq_id][idxs, 7:10]
+
         # # pos
-        # pw0 = self.targets[seq_id][idxs][0:3]
+        # pw0 = self.targets[seq_id][idxe-1][0:3]
         # pw1 = self.targets[seq_id][idxe][0:3]
-        # targ = pw1 - pw0
+        # targ = (pw1 - pw0)/0.01
         targ = self.targets[seq_id][idxe, 7:9]
 
         # auxiliary variables
@@ -222,7 +234,11 @@ class ModelDataset(Dataset):
 
                 theta_rand = (
                         random.random() * np.pi * self.perturb_orientation_theta_range / 180.0)
+                # theta_rand = np.random.rand(*feat[:, 0:3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
                 feat[:, 0:3] += theta_rand
+
+                accel_rand = np.random.rand(*feat[:, 3:6].shape) * 0.1
+                feat[:, 3:6] += accel_rand
                 # theta_deg = np.random.normal(self.perturb_orientation_mean, self.perturb_orientation_std)
                 # theta_rand = theta_deg * np.pi / 180.0
 
@@ -239,7 +255,7 @@ class ModelDataset(Dataset):
             #         np.random.normal(scale=2*self.init_vel_sigma)])
             #     vw0 = vw0 + dv
 
-        return feat.astype(np.float32).T, vw0.astype(np.float32).T, targ.astype(np.float32), \
+        return feat.astype(np.float32).T, vb0.astype(np.float32).T, targ.astype(np.float32), \
             feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
 
     def __len__(self):

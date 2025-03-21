@@ -259,16 +259,15 @@ class FilterRunner:
         # get measurement from network
         net_gyr_w, net_accl_w, net_t_s = self._get_inputs_samples_for_network(
             t_begin_us, t_oldest_state_us, t_end_us)
-        meas, meas_cov = self.meas_source.get_displacement_measurement(
+        meas, meas_cov = self.meas_source.get_measurement(
             net_t_s, net_gyr_w, net_accl_w)
-
         # filter update
         is_available, innovation, jac, noise_mat = \
             self.filter.learnt_model_update(meas, meas_cov, t_oldest_state_us, t_end_us)
         success = False
         if is_available:
-            inno = innovation.reshape((3,1))
-            success = self.filter.apply_update(inno, jac, noise_mat)
+            # inno = innovation.reshape((3,1))
+            success = self.filter.apply_update(innovation, jac, noise_mat)
 
         self.has_done_first_update = True
         # marginalization of all past state with timestamp before or equal ts_oldest_state

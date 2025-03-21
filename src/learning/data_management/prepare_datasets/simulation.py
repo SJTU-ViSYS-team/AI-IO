@@ -69,7 +69,9 @@ train_times = {
     'sim_rectangle_add_noise': [0.0 + 1e5, 160.0 + 1e5],
     'sim_rectangle_add_noise_200Hz': [0.0 + 1e5, 160.0 + 1e5],
     'altitude_hold': [0.0 + 1e5, 70.0 + 1e5],
-    'altitude_vary_noise_200s_low_speed': [0.0 + 1e5, 160.0 + 1e5]
+    'FPV_500Hz_1000s': [0.0 + 1e5, 800.0 + 1e5],
+    'FPV_sim_hover': [0.0 + 1e5, 20.0 + 1e5],
+    'FPV_sim_line': [0.0 + 1e5, 20.0 + 1e5]
     
 }
 val_times = {
@@ -81,7 +83,9 @@ val_times = {
     'sim_rectangle_add_noise': [160.0 + 1e5, 180.0 + 1e5],
     'sim_rectangle_add_noise_200Hz': [160.0 + 1e5, 180.0 + 1e5],
     'altitude_hold': [70.0 + 1e5, 85.0 + 1e5],
-    'altitude_vary_noise_200s_low_speed': [160.0 + 1e5, 180.0 + 1e5]
+    'FPV_500Hz_1000s': [800.0 + 1e5, 900.0 + 1e5],
+    'FPV_sim_hover': [0.0 + 1e5, 20.0 + 1e5],
+    'FPV_sim_line': [0.0 + 1e5, 20.0 + 1e5]
 }
 test_times = {
     'sim1': [140.0, 160.0],
@@ -92,9 +96,11 @@ test_times = {
     'sim_rectangle_add_noise': [180.0 + 1e5, 200.0 + 1e5],
     'sim_rectangle_add_noise_200Hz': [180.0 + 1e5, 200.0 + 1e5],
     'altitude_hold': [85.0 + 1e5, 100.0 + 1e5],
-    'altitude_vary_noise_200s_low_speed': [180.0 + 1e5, 200.0 + 1e5]
+    'FPV_500Hz_1000s': [900.0 + 1e5, 1000.0 + 1e5],
+    'FPV_sim_hover': [0.0 + 1e5, 20.0 + 1e5],
+    'FPV_sim_line': [0.0 + 1e5, 20.0 + 1e5]
 }
-dt = 0.01
+dt = 0.002
 
 def prepare_dataset(args):
     """
@@ -192,6 +198,7 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
         velocity_data = interp_velocity(strict_times)
         orientation_data = slerp(strict_times).as_quat()
 
+        # FIXME: 当前初始速度为b系速度，需要使用w系
         # 初始位置姿态速度信息
         traj_target_oris_from_imu = np.concatenate((position_data[:1, :], orientation_data[:1, :], velocity_data[:1, :]), axis=1)
 
@@ -246,7 +253,7 @@ def process_pose_data_row(row):
     
     R_w2_b = R_w2_w1 @ R_w1_b
     t_w2_b = R_w2_w1 @ t_w1_b + t_w2_w1
-    v_b_b = R_w2_b.T @ R_w2_w1 @ v_w1_b
+    v_b_b = R_w1_b.T @ v_w1_b
     q_w2_b = Rotation.from_matrix(R_w2_b).as_quat()
     
     row[' p_RS_R_x [m]'] = t_w2_b[0]

@@ -18,6 +18,8 @@ import numpy as np
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation, Slerp
 
+from learning.utils import pose
+
 
 class DataIO:
     def __init__(self, quad_name=None):
@@ -43,23 +45,36 @@ class DataIO:
             accel_raw = np.copy(f["accel_raw"])
             gyro_calib = np.copy(f["gyro_calib"])
             accel_calib = np.copy(f["accel_calib"])
-            # i_thrust = np.copy(f["i_thrust"])
             gt_traj = np.copy(f["traj_target"])
             gyro_bias = np.copy(f["gyro_bias"])
             accel_bias = np.copy(f["accel_bias"])
+
+            # # for DIDO data
+            # gyro_raw = np.copy(f["gyr"])
+            # gyro_calib = np.copy(f["gyr"])
+            # accel_raw = np.copy(f["acc"])
+            # accel_calib = np.copy(f["acc"])
+            # gt_p = np.copy(f["gt_p"])
+            # gt_q = np.copy(f["gt_q"])
+            # gt_q = np.hstack((gt_q[:, 1:], gt_q[:, 0:1]))
+            # gt_v = np.copy(f["gt_v"])
+            # gt_vb = np.array([pose.xyzwQuatToMat(q).T @ v for v, q in zip(gt_v, gt_q)])
+            # gt_traj = np.hstack((gt_p, gt_q, gt_vb))
+            # gyro_bias = np.zeros((3,1))
+            # accel_bias = np.zeros((3,1))
 
         self.ts = np.round(ts, 5)
         self.accel_raw = accel_raw
         self.gyro_raw = gyro_raw
         self.accel_calib = accel_calib
         self.gyro_calib = gyro_calib
-        # self.thrust = i_thrust
         self.dataset_size = self.ts.shape[0]
         self.gyro_bias = gyro_bias
         self.accel_bias = accel_bias
         self.gt_ts = np.round(ts, 5)
         self.gt_p = gt_traj[:, 0:3]
-        self.gt_q = gt_traj[:, 3:]
+        self.gt_q = gt_traj[:, 3:7]
+        self.gt_vb = gt_traj[:, 7:10]
 
         gt_v = (self.gt_p[2:] - self.gt_p[:-2]) / (self.gt_ts[2:] - self.gt_ts[:-2])[:, None]
         vs = (self.gt_p[1] - self.gt_p[0]) / (self.gt_ts[1] - self.gt_ts[0])

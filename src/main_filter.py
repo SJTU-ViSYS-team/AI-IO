@@ -98,7 +98,7 @@ if __name__ == "__main__":
         "--mahalanobis_fail_scale", type=float, default=0.0
     )  # if nonzero then mahalanobis gating test would scale the covariance by this scale if failed
 
-    add_bool_arg(filter_group, "use_const_cov", default=False)
+    add_bool_arg(filter_group, "use_const_cov", default=True)
     filter_group.add_argument(
         "--const_cov_val_x", type=float, default=0.01
     )
