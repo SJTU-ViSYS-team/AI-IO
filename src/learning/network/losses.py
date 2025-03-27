@@ -100,29 +100,6 @@ def get_errors_and_losses(dv, dp, targets, learn_configs, device):
 
     return errs_vel, errs_pos, loss_vel, loss_pos
 
-# TODO: change loss function to learn the covariance
-
-from learning.network.covariance_parametrization import DiagonalParam
-
-
-MIN_LOG_STD = np.log(1e-3)
-
-"""
-MSE loss between prediction and target, no logstdariance
-
-input: 
-  pred: Nx3 vector of network displacement output
-  targ: Nx3 vector of gt displacement
-output:
-  loss: Nx3 vector of MSE loss on x,y,z
-"""
-
-
-def loss_mse(pred, targ):
-    loss = (pred - targ).pow(2)
-    return loss
-
-
 """
 Log Likelihood loss, with logstdariance (only support diag logstd)
 
@@ -137,7 +114,7 @@ resulting pred_logstd meaning:
 pred_logstd:(Nx3) u = [log(sigma_x) log(sigma_y) log(sigma_z)]
 """
 
-
+MIN_LOG_STD = np.log(1e-3)
 def loss_distribution_diag(pred, pred_logstd, targ):
 
     pred_logstd = torch.maximum(pred_logstd, MIN_LOG_STD * torch.ones_like(pred_logstd))
@@ -165,7 +142,7 @@ pred_logstd (Nx6): u = [log(sigma_x) log(sigma_y) log(sigma_z)
 FunStuff
 """
 
-
+from learning.network.covariance_parametrization import DiagonalParam
 def criterion_distribution(pred, pred_logstd, targ):
     loss = DiagonalParam.toMahalanobisDistance(
         targ, pred, pred_logstd, clamp_logstdariance=False
@@ -178,14 +155,26 @@ all variables on gpu
 output:
   loss: Nx3
 """
-def get_loss(pred, pred_logstd, targ, epoch):
-    # if epoch < 10:
-    #     loss = loss_mse(pred, targ)
-    # else:
-    #     loss = loss_distribution_diag(pred, pred_logstd, targ)
-
-    if epoch < 10:
-        pred_logstd = pred_logstd.detach()
-
-    loss = loss_distribution_diag(pred, pred_logstd, targ)
+def get_loss(pred, pred_logstd, targ, epoch, learn_configs):
+    if learn_configs["switch_iter"] is not None:
+        switch_epoch = learn_configs["switch_iter"]
+        if epoch < switch_epoch:
+            loss_type = learn_configs["loss_type"]
+            if loss_type == "huber":
+                loss = nn.functional.huber_loss(pred, targ, reduction='none', delta=learn_configs["huber_vel_loss_delta"])
+            elif loss_type == "mse":
+                loss = nn.functional.mse_loss(pred, targ, reduce=False)
+            else:
+                AssertionError("Unknown loss function!")
+        else:
+            loss = loss_distribution_diag(pred, pred_logstd, targ)
+    else:
+        loss_type = learn_configs["loss_type"]
+        if loss_type == "huber":
+            loss = nn.functional.huber_loss(pred, targ, reduction='none', delta=learn_configs["huber_vel_loss_delta"])
+        elif loss_type == "mse":
+            loss = nn.functional.mse_loss(pred, targ, reduce=False)
+        else:
+            AssertionError("Unknown loss function!")
+    
     return loss
