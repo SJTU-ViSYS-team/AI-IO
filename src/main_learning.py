@@ -34,32 +34,26 @@ if __name__ == "__main__":
 
     # ------------------ architecture and learning params -----------------
     parser.add_argument("--lr", type=float, default=1e-04)
-    parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=500, help="max num epochs")
+    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--epochs", type=int, default=100, help="max num epochs")
+    parser.add_argument("--save_interval", type=int, default=10, help="save model every n epochs")
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--input_dim", type=int, default=6)
-    parser.add_argument("--output_dim", type=int, default=2)
+    parser.add_argument("--output_dim", type=int, default=3)
     parser.add_argument("--weight_vel_err", type=float, default=1.)
     parser.add_argument("--weight_pos_err", type=float, default=1.)
     parser.add_argument("--loss_type", type=str, default="huber", help="huber,mse")
     parser.add_argument("--huber_vel_loss_delta", type=float, default=0.1, help="value is in [m/s]")
     parser.add_argument("--huber_pos_loss_delta", type=float, default=0.5, help="value is in [m]")
+    parser.add_argument("--switch_iter", type=int, default=10, help="switch to optimize covariance after this iter")
 
     # ------------------ data perturbation ------------------
     add_bool_arg(parser, "perturb_orientation", default=True)
     parser.add_argument(
         "--perturb_orientation_theta_range", type=float, default=5.0
     )  # degrees
-    parser.add_argument(
-        "--perturb_orientation_mean", type=float, default=0.0
-    )  # degrees
-    parser.add_argument(
-        "--perturb_orientation_std", type=float, default=2.0
-    )  # degrees
-    add_bool_arg(parser, "perturb_bias", default=False)
-    parser.add_argument("--gyro_bias_perturbation_range", type=float, default=0.01)
-    add_bool_arg(parser, "perturb_init_vel", default=True)
-    parser.add_argument("--init_vel_sigma", type=float, default=0.3)
+    add_bool_arg(parser, "perturb_accel", default=False)
+    parser.add_argument("--perturb_accel_range", type=float, default=0.1)  # m/s^2
 
     # ------------------ commons -----------------
     parser.add_argument(

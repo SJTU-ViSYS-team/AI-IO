@@ -1,5 +1,4 @@
 import h5py
-
 def print_hdf5_structure(name, obj):
     """递归打印每个组和数据集的信息。"""
     # 打印组或数据集的路径
@@ -22,8 +21,10 @@ def print_hdf5_structure(name, obj):
         # 如果数据量过大，只显示前10个元素
         if data.size > 10:
             print("  Partial data (first 10 items):", data.flat[:10])
+            if name == "ts":
+                print("delta ts:", data.flat[1:10] - data.flat[0:9])
 
 # 打开 HDF5 文件
-with h5py.File("/home/csf/LearnedInertialOdometry/datasets/FPV/FPV_sim_hover/processed_data/train/data.hdf5", "r") as file:
+with h5py.File("datasets/DIDO/random_a_0.7_v_1.5_n_1.5_2022-02-22-13-02-02(0)/data_original.hdf5", "r") as file:
     # 遍历并打印整个文件的结构和数据
     file.visititems(print_hdf5_structure)

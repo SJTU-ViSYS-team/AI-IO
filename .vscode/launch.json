@@ -17,7 +17,7 @@
                 "--mode=train",
                 "--imu_freq=400",
                 "--sampling_freq=400",
-                "--window_time=1"
+                "--window_time=1.0"
             ]
         },
         {
@@ -34,7 +34,7 @@
                 "--imu_freq=400",
                 "--sampling_freq=400",
                 "--window_time=1",
-                "--model_fn=checkpoint_10.pt",
+                "--model_fn=checkpoint_40.pt",
                 "--show_plots"
             ]
         },

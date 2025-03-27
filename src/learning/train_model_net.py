@@ -22,7 +22,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
-from learning.data_management.datasets import ModelDataset
+from learning.data_management.datasets import *
 from learning.network.losses import get_error_and_loss, get_loss
 from learning.network.model_factory import get_model
 from learning.utils.argparse_utils import arg_conversion
@@ -47,31 +47,27 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     
     network.eval()
 
-    for _, (feat, v_init, targ, ts, _, _) in enumerate(data_loader):
-        # feat_i = [[feat_gyros], [feat_thrusts]]
+    for _, (feat, targ, ts, gyro, accel) in enumerate(data_loader):
+        # feat_i = [[feat_ypr], [feat_accel]]
         # dims = [batch size, 6, window size]
-        # targ = [dp]
+        # targ = [v]
         # dims = [batch size, 3]
 
-        # TODO: 将window内的初始速度v_init作为网络输入，目前的初始速度扰动比较大，修改
         feat = feat.to(device)
-        v_init = v_init.to(device)
         targ = targ.to(device)
 
         # get network prediction
         pred, pred_cov = network(feat)
 
         # compute loss
-        # errs, loss = get_error_and_loss(dp, targ, learn_configs, device)
-        loss = get_loss(pred, pred_cov, targ, epoch)
+        loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
         errs = pred - targ
         errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
         # log
         errors_all.append(errs_norm)
         losses_all.append(torch_to_numpy(loss))
         preds_cov_all.append(torch_to_numpy(pred_cov))
-        # errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
-        # errors_all.append(errs_norm)
+        
     # save
     preds_cov_all = np.concatenate(preds_cov_all, axis=0)
     errors_all = np.concatenate(errors_all, axis=0)
@@ -97,13 +93,12 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
 
     network.train()
 
-    for _, (feat, v_init, targ, ts, _, _) in enumerate(train_loader):
-        # feat_i = [[feat_gyros], [feat_thrusts]]
+    for _, (feat, targ, ts, gyro, accel) in enumerate(train_loader):
+        # feat_i = [[feat_ypr], [feat_accel]]
         # dims = [batch size, 6, window size]
-        # targ = [dp]
+        # targ = [v]
         # dims = [batch size, 3]
         feat = feat.to(device)
-        v_init = v_init.to(device)
         targ = targ.to(device)
 
         optimizer.zero_grad()
@@ -112,16 +107,13 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
         pred, pred_cov = network(feat)
 
         # compute loss
-        # errs, loss = get_error_and_loss(dp, targ, learn_configs, device)
-        loss = get_loss(pred, pred_cov, targ, epoch)
+        loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
         errs = pred - targ
         errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
         # log
         errors_all.append(errs_norm)
         losses_all.append(torch_to_numpy(loss))
         preds_cov_all.append(torch_to_numpy(pred_cov))
-        # errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
-        # errors_all.append(errs_norm)
 
         # backprop and optimization
         loss = loss.mean()
@@ -144,11 +136,11 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
 
 def write_summary(summary_writer, attr_dict, epoch, optimizer, mode):
     """ Given the attr_dict write summary and log the losses """
-    # error = np.mean(attr_dict["errors"])
+    error = np.mean(attr_dict["errors"])
     loss = np.mean(attr_dict["losses"])
-    # summary_writer.add_scalar(f"{mode}_loss_pos/avg", error, epoch)
+    summary_writer.add_scalar(f"{mode}_loss_vel/avg", error, epoch)
     summary_writer.add_scalar(f"{mode}_loss/avg", loss, epoch)
-    # logging.info(f"{mode}: average error [m]: {error}")
+    logging.info(f"{mode}: average error [m/s]: {error}")
     logging.info(f"{mode}: average loss: {loss}")
 
     if epoch > 0:
@@ -245,10 +237,9 @@ def train(args):
     start_t = time.time()
     train_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.train_list))
     try:
-        train_dataset = ModelDataset(
-            args.root_dir, args.dataset, train_list, args, data_window_config, mode="train")
+        train_dataset = construct_dataset(args, train_list, data_window_config)
         train_loader = DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=True) #, num_workers=16)
+            train_dataset, batch_size=args.batch_size, shuffle=True)  # , num_workers=16)
     except OSError as e:
         logging.error(e)
         return
@@ -298,9 +289,8 @@ def train(args):
     # run first validation of the full validation set
     if run_validation:
         try:
-            val_dataset = ModelDataset(
-                args.root_dir, args.dataset, val_list, args, data_window_config, mode="val")
-            val_loader = DataLoader(val_dataset, batch_size=128, shuffle=True, num_workers=16)
+            val_dataset = construct_dataset(args, val_list, data_window_config, mode="val")
+            val_loader = DataLoader(val_dataset, batch_size=128, shuffle=True)  # , num_workers=16)
         except OSError as e:
             logging.error(e)
             return
@@ -317,7 +307,9 @@ def train(args):
         save_model(args, epoch, network, optimizer, interrupt=True)
         sys.exit()
 
-    # actual training
+    ##############################################
+    ############ actual training loop ############
+    ##############################################
     for epoch in range(start_epoch + 1, args.epochs):
         signal.signal(
             signal.SIGINT, partial(stop_signal_handler, args, epoch, network, optimizer)
@@ -341,8 +333,7 @@ def train(args):
                 val_seq = val_list[val_sample]
                 logging.info("Running validation on %s" % val_seq)
                 try:
-                    val_dataset = ModelDataset(
-                        args.root_dir, args.dataset, [val_seq], args, data_window_config, mode="val")
+                    val_dataset = construct_dataset(args, [val_seq], data_window_config, mode="val")
                     val_loader = DataLoader(val_dataset, batch_size=128, shuffle=True)  # , num_workers=16)
                 except OSError as e:
                     logging.error(e)
@@ -355,14 +346,35 @@ def train(args):
             if current_loss < best_loss:
                 best_loss = current_loss
                 save_model(args, epoch, network, optimizer)
+            if epoch % args.save_interval == 0:
+                save_model(args, epoch, network, optimizer)
         else:
             attr_dict = get_inference(net_config, network, train_loader, device, epoch)
             current_loss = np.mean(attr_dict["losses"])
             if current_loss < best_loss:
                 best_loss = current_loss
                 save_model(args, epoch, network, optimizer)
+            if epoch % args.save_interval == 0:
+                save_model(args, epoch, network, optimizer)
 
     logging.info("Training complete.")
 
     return
 
+
+def construct_dataset(args, data_list, data_window_config, mode="train"):
+    if args.dataset == "DIDO":
+        train_dataset = ModelDIDODataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "Blackbird":
+        train_dataset = ModelBlackbirdDataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "FPV":
+        train_dataset = ModelFPVDataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "Simulation":
+        train_dataset = ModelSimulationDataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    else:
+        raise ValueError(f"Unknown dataset {args.dataset}")
+    return train_dataset

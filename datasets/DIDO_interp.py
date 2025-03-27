@@ -105,4 +105,4 @@ def batch_process(root_dir):
             else:
                 print(f"Skipping {dir_path}: no data.hdf5 found")
 
-batch_process("/home/csf/LearnedInertialOdometry/datasets/DIDO")
+batch_process("./datasets/DIDO_temp")

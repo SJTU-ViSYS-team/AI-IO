@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from learning.data_management.datasets import ModelDataset
+from learning.data_management.datasets import *
 from learning.network.losses import get_error_and_loss, get_loss
 from learning.network.model_factory import get_model
 from learning.utils.argparse_utils import arg_conversion
@@ -91,7 +91,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     
     network.eval()
 
-    for _, (feat, v_init, targ, ts, _, _) in enumerate(data_loader):
+    for _, (feat, targ, ts, _, _) in enumerate(data_loader):
         # feat_i = [[feat_gyros], [feat_thrusts]]
         # dims = [batch size, 6, window size]
         # targ = [dp]
@@ -99,18 +99,10 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         feat = feat.to(device)
         targ = targ.to(device)
 
-        # # get network prediction
-        # dp_learned = network(feat)
-
-        # # compute loss
-        # errs, loss = get_error_and_loss(dp_learned, targ, learn_configs, device)
-
-        # get network prediction
         pred, pred_cov = network(feat)
 
         # compute loss
-        # errs, loss = get_error_and_loss(dp, targ, learn_configs, device)
-        loss = get_loss(pred, pred_cov, targ, epoch)
+        loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
         errs = pred - targ
         errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
         
@@ -151,36 +143,6 @@ def get_datalist(list_path):
         data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
     return data_list
 
-
-def sample_dp(ts, dp):
-    # dp_i = [t0 t1 dp]
-    dp_s = []
-        
-    dp_i = np.concatenate(([ts[0,0]], [ts[0,-1]], dp[0]))
-    dp_s.append(dp_i)
-
-    for tsi, dpi in zip(ts, dp):
-        if tsi[0] >= dp_s[-1][1]:
-            dp_i = np.concatenate(([tsi[0]], [tsi[-1]], dpi))
-            dp_s.append(dp_i)
-    dp_s = np.asarray(dp_s)
-    return dp_s
-
-
-def sample_meas(ts, meas):
-    # meas_i = [ts x y z]
-    meas_s = []
-    meas_i = np.concatenate((ts[0].reshape((-1,1)), meas[0].T), axis=1)
-    meas_s.append(meas_i)
-
-    for tsi, measi in zip(ts, meas):
-        if tsi[0] > meas_s[-1][-1,0]:
-            meas_i = np.concatenate((tsi.reshape((-1,1)), measi.T), axis=1)
-            meas_s.append(meas_i)
-    meas_s = np.concatenate(meas_s, axis=0)
-    return meas_s
-
-
 def test(args):
     try:
         if args.root_dir is None:
@@ -218,8 +180,7 @@ def test(args):
     for data in test_list:
         logging.info(f"Processing {data}...")
         try:
-            seq_dataset = ModelDataset(
-                args.root_dir, args.dataset, [data], args, data_window_config, mode="test")
+            seq_dataset = construct_dataset(args, [data], data_window_config, mode="test")
             seq_loader = DataLoader(seq_dataset, batch_size=128, shuffle=False)
         except OSError as e:
             print(e)
@@ -268,40 +229,40 @@ def test(args):
             dp_errs = dp_learned - dp_targets
 
             plt.figure('Velocity')
-            plt.subplot(2, 1, 1)
+            plt.subplot(3, 1, 1)
             plt.plot(dp_learned[:, 0], label="Learned x")
             plt.plot(dp_targets[:, 0], label="Real x", alpha=0.7)
             plt.legend()
-            plt.subplot(2, 1, 2)
+            plt.subplot(3, 1, 2)
             plt.plot(dp_learned[:, 1], label="Learned y")
             plt.plot(dp_targets[:, 1], label="Real y", alpha=0.7)
             plt.legend()
-            # plt.subplot(3, 1, 3)
-            # plt.plot(dp_learned[:, 2], label="Learned z")
-            # plt.plot(dp_targets[:, 2], label="Real z", alpha=0.7)
-            # plt.legend()
+            plt.subplot(3, 1, 3)
+            plt.plot(dp_learned[:, 2], label="Learned z")
+            plt.plot(dp_targets[:, 2], label="Real z", alpha=0.7)
+            plt.legend()
 
             plt.figure('Errors')
-            plt.subplot(2, 1, 1)
+            plt.subplot(3, 1, 1)
             plt.plot(dp_errs[:, 0], label="x")
             plt.legend()
-            plt.subplot(2, 1, 2)
+            plt.subplot(3, 1, 2)
             plt.plot(dp_errs[:, 1], label="y")
             plt.legend()
-            # plt.subplot(3, 1, 3)
-            # plt.plot(dp_errs[:, 2], label="z")
-            # plt.legend()
+            plt.subplot(3, 1, 3)
+            plt.plot(dp_errs[:, 2], label="z")
+            plt.legend()
 
             plt.figure('Std')
-            plt.subplot(2, 1, 1)
+            plt.subplot(3, 1, 1)
             plt.plot(dp_cov_learned[:, 0], label="x")
             plt.legend()
-            plt.subplot(2, 1, 2)
+            plt.subplot(3, 1, 2)
             plt.plot(dp_cov_learned[:, 1], label="y")
             plt.legend()
-            # plt.subplot(3, 1, 3)
-            # plt.plot(dp_cov_learned[:, 2], label="z")
-            # plt.legend()
+            plt.subplot(3, 1, 3)
+            plt.plot(dp_cov_learned[:, 2], label="z")
+            plt.legend()
 
             # fig1 = plt.figure("Errors")
             # gs = gridspec.GridSpec(3, 1)
@@ -362,11 +323,27 @@ def test(args):
             print('y')
             print('mean = %.5f' % np.mean(dp_errs[:,1]))
             print('std = %.5f' % np.std(dp_errs[:,1]))
-            # print('z')
-            # print('mean = %.5f' % np.mean(dp_errs[:,2]))
-            # print('std = %.5f' % np.std(dp_errs[:,2]))
+            print('z')
+            print('mean = %.5f' % np.mean(dp_errs[:,2]))
+            print('std = %.5f' % np.std(dp_errs[:,2]))
 
             if args.show_plots:
                 plt.show()
     return
 
+def construct_dataset(args, data_list, data_window_config, mode="train"):
+    if args.dataset == "DIDO":
+        train_dataset = ModelDIDODataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "Blackbird":
+        train_dataset = ModelBlackbirdDataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "FPV":
+        train_dataset = ModelFPVDataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "Simulation":
+        train_dataset = ModelSimulationDataset(
+            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    else:
+        raise ValueError(f"Unknown dataset {args.dataset}")
+    return train_dataset

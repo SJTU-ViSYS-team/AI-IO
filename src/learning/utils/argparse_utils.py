@@ -62,7 +62,8 @@ def arg_conversion(args):
         "weight_pos_err": args.weight_pos_err,
         "loss_type": args.loss_type,
         "huber_vel_loss_delta": args.huber_vel_loss_delta * args.weight_vel_err,
-        "huber_pos_loss_delta": args.huber_pos_loss_delta * args.weight_pos_err
+        "huber_pos_loss_delta": args.huber_pos_loss_delta * args.weight_pos_err,
+        "switch_iter": args.switch_iter,
     }
 
     return data_window_config, net_config
