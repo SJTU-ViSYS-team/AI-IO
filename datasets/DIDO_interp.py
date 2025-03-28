@@ -16,18 +16,17 @@ def process_hdf5(input_path, output_path):
         gt_q = np.copy(f["gt_q"])
         gt_q = np.hstack((gt_q[:, 1:], gt_q[:, 0:1]))
         gt_v = np.copy(f["gt_v"])
-        gt_vb = np.array([Rotation.from_quat(q).as_matrix().T @ v for v, q in zip(gt_v, gt_q)])
-        traj_target = np.hstack((gt_p, gt_q, gt_vb))
+        # gt_vb = np.array([Rotation.from_quat(q).as_matrix().T @ v for v, q in zip(gt_v, gt_q)])
 
     strict_ts = np.arange(ts[0], ts[-1], 0.0025)
     strict_ts = np.clip(strict_ts, ts[0], ts[-1])  # 将超限时间截断到边界
     interp_gyro = interp1d(ts, gyro_raw, axis=0, fill_value="extrapolate")(strict_ts)
     interp_accel = interp1d(ts, accel_raw, axis=0, fill_value="extrapolate")(strict_ts)
     interp_pos = interp1d(ts, gt_p, axis=0, fill_value="extrapolate")(strict_ts)
-    interp_vb = interp1d(ts, gt_vb, axis=0, fill_value="extrapolate")(strict_ts)
+    interp_v = interp1d(ts, gt_v, axis=0, fill_value="extrapolate")(strict_ts)
     interp_quat = Slerp(ts, Rotation.from_quat(gt_q))(strict_ts).as_quat()
 
-    traj_target = np.hstack((interp_pos, interp_quat, interp_vb))
+    traj_target = np.hstack((interp_pos, interp_quat, interp_v))
     traj_target_oris_from_imu = np.concatenate((gt_p[:1, :], gt_q[:1, :], gt_v[:1, :]), axis=1)
 
     # imu_calibrator = utils.getImuCalib("Euroc")
@@ -62,15 +61,14 @@ def save_groundtruth(input_path):
         gt_q = np.copy(f["gt_q"])
         gt_q = np.hstack((gt_q[:, 1:], gt_q[:, 0:1]))
         gt_v = np.copy(f["gt_v"])
-        gt_vb = np.array([Rotation.from_quat(q).as_matrix().T @ v for v, q in zip(gt_v, gt_q)])
-        traj_target = np.hstack((gt_p, gt_q, gt_vb))
+        # gt_vb = np.array([Rotation.from_quat(q).as_matrix().T @ v for v, q in zip(gt_v, gt_q)])
 
     strict_ts = np.arange(ts[0], ts[-1], 0.0025)
     strict_ts = np.clip(strict_ts, ts[0], ts[-1])  # 将超限时间截断到边界
     interp_gyro = interp1d(ts, gyro_raw, axis=0, fill_value="extrapolate")(strict_ts)
     interp_accel = interp1d(ts, accel_raw, axis=0, fill_value="extrapolate")(strict_ts)
     interp_pos = interp1d(ts, gt_p, axis=0, fill_value="extrapolate")(strict_ts)
-    interp_vb = interp1d(ts, gt_vb, axis=0, fill_value="extrapolate")(strict_ts)
+    interp_v = interp1d(ts, gt_v, axis=0, fill_value="extrapolate")(strict_ts)
     interp_quat = Slerp(ts, Rotation.from_quat(gt_q))(strict_ts).as_quat()
 
     txt_path = os.path.join(os.path.dirname(input_path), "stamped_groundtruth_imu.txt")
@@ -87,7 +85,6 @@ def batch_process(root_dir):
             original_file = os.path.join(dir_path, "data.hdf5")
             backup_file = os.path.join(dir_path, "data_original.hdf5")
             new_file = os.path.join(dir_path, "data.hdf5")
-            
             if os.path.exists(original_file) and not os.path.exists(backup_file):
                 # 重命名原文件
                 os.rename(original_file, backup_file)

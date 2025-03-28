@@ -167,12 +167,12 @@ def prepare_dataset(args):
         groundtruth_vel_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 8:11], axis=0)(times_imu)
         groundtruth_rot_data_inv = groundtruth_rot_data.inv()
         # prepare vel in b frame
-        groundtruth_vel_data_b = groundtruth_rot_data_inv.apply(groundtruth_vel_data)
+        # groundtruth_vel_data_b = groundtruth_rot_data_inv.apply(groundtruth_vel_data)
 
         gt_traj = np.concatenate((times_imu.reshape((-1, 1)),
                                   groundtruth_pos_data,
                                   groundtruth_rot_data.as_quat(),
-                                  groundtruth_vel_data_b), axis=1)
+                                  groundtruth_vel_data), axis=1)
 
         ts = raw_imu[:, 0]
 

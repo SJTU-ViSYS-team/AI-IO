@@ -253,15 +253,15 @@ def process_pose_data_row(row):
     
     R_w2_b = R_w2_w1 @ R_w1_b
     t_w2_b = R_w2_w1 @ t_w1_b + t_w2_w1
-    v_b_b = R_w1_b.T @ v_w1_b
+    v_w2_b = R_w2_w1 @ v_w1_b
     q_w2_b = Rotation.from_matrix(R_w2_b).as_quat()
     
     row[' p_RS_R_x [m]'] = t_w2_b[0]
     row[' p_RS_R_y [m]'] = t_w2_b[1]
     row[' p_RS_R_z [m]'] = t_w2_b[2]
-    row[' v_RS_R_x [m s^-1]'] = v_b_b[0]
-    row[' v_RS_R_y [m s^-1]'] = v_b_b[1]
-    row[' v_RS_R_z [m s^-1]'] = v_b_b[2]
+    row[' v_RS_R_x [m s^-1]'] = v_w2_b[0]
+    row[' v_RS_R_y [m s^-1]'] = v_w2_b[1]
+    row[' v_RS_R_z [m s^-1]'] = v_w2_b[2]
     row[' q_RS_x []'] = q_w2_b[0]
     row[' q_RS_y []'] = q_w2_b[1]
     row[' q_RS_z []'] = q_w2_b[2]

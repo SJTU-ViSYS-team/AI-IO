@@ -83,6 +83,8 @@ class ModelSequence(CompiledSequence):
         # TODO: modify network input to euler angle and accel in i(b) frame
         ypr = np.array([pose.fromQuatToEulerAng(targ[3:7]) for targ in traj_target]) / 180.0 * np.pi
         self.feat = np.concatenate([ypr, accel_calib], axis=1)
+        for i in range(traj_target.shape[0]):
+            traj_target[i, 7:10] = pose.xyzwQuatToMat(traj_target[i, 3:7]).T @ traj_target[i,7:10]
         self.traj_target = traj_target
 
     def get_feature(self):
