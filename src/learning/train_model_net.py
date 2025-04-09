@@ -39,13 +39,15 @@ def torch_to_numpy(torch_arr):
     return torch_arr.cpu().detach().numpy()
 
 
-def get_inference(learn_configs, network, data_loader, device, epoch):
+def get_inference(learn_configs, network, data_loader, device, epoch, debias_net=None):
     """
     Get network status
     """
     errors_all, losses_all, preds_cov_all = [], [], []
     
     network.eval()
+    if debias_net:
+        debias_net.eval()
 
     for _, (feat, targ, ts, gyro, accel) in enumerate(data_loader):
         # feat_i = [[feat_ypr], [feat_accel]]
@@ -55,6 +57,12 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
 
         feat = feat.to(device)
         targ = targ.to(device)
+        # 预处理加速度数据
+        if debias_net:
+            with torch.no_grad():
+                accel_data = feat[:, 3:6, :]  # 取出加速度数据
+                accel_debiased = accel_data + debias_net(accel_data).unsqueeze(2).repeat(1,1, accel_data.shape[2])  # 通过去偏网络
+                feat[:, 3:6, :] = accel_debiased  # 替换原来的加速度数据
 
         # get network prediction
         pred, pred_cov = network(feat)
@@ -232,6 +240,22 @@ def train(args):
     logging.info(f'TCN network loaded to device {device}')
     logging.info(f"Total number of learning parameters: {n_params}")
 
+    #TODO: add debias network
+    if args.debias_accel:
+        from debias.network.model_factory import get_model as get_debias_model
+        debias_model_path = args.debias_model_path
+        debias_checkpoint = torch.load(debias_model_path, map_location=device)
+        debias_net_config = {
+        "in_dim": (
+            100
+        )}
+        debias_net = get_debias_model("resnet", debias_net_config, 3, 3).to(device)
+        debias_net.load_state_dict(debias_checkpoint["model_state_dict"])
+        debias_net.eval()
+        logging.info(f"Model {args.debias_model_path} loaded to device {device}.")
+    else:
+        debias_net = None
+
     # Training / Validation datasets
     train_loader, val_loader = None, None
     start_t = time.time()
@@ -239,7 +263,7 @@ def train(args):
     try:
         train_dataset = construct_dataset(args, train_list, data_window_config)
         train_loader = DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=True)  # , num_workers=16)
+            train_dataset, batch_size=args.batch_size, shuffle=True) #, num_workers=16)
     except OSError as e:
         logging.error(e)
         return
@@ -283,7 +307,7 @@ def train(args):
     summary_writer.add_text("info", f"total_param: {n_params}")
 
     logging.info(f"-------------- Init, Epoch {start_epoch} --------------")
-    attr_dict = get_inference(net_config, network, train_loader, device, start_epoch)
+    attr_dict = get_inference(net_config, network, train_loader, device, start_epoch, debias_net)
     write_summary(summary_writer, attr_dict, start_epoch, optimizer, "train")
     best_loss = np.mean(attr_dict["losses"])
     # run first validation of the full validation set
@@ -297,7 +321,7 @@ def train(args):
         logging.info("Validation set loaded.")
         logging.info(f"Number of val samples: {len(val_dataset)}")
 
-        val_dict = get_inference(net_config, network, val_loader, device, start_epoch)
+        val_dict = get_inference(net_config, network, val_loader, device, start_epoch, debias_net)
         write_summary(summary_writer, val_dict, start_epoch, optimizer, "val")
         best_loss = np.mean(val_dict["losses"])
 
@@ -339,7 +363,7 @@ def train(args):
                     logging.error(e)
                     return
 
-            val_attr_dict = get_inference(net_config, network, val_loader, device, epoch)
+            val_attr_dict = get_inference(net_config, network, val_loader, device, epoch, debias_net)
             write_summary(summary_writer, val_attr_dict, epoch, optimizer, "val")
             current_loss = np.mean(val_attr_dict["losses"])
 
@@ -349,7 +373,7 @@ def train(args):
             if epoch % args.save_interval == 0:
                 save_model(args, epoch, network, optimizer)
         else:
-            attr_dict = get_inference(net_config, network, train_loader, device, epoch)
+            attr_dict = get_inference(net_config, network, train_loader, device, epoch, debias_net)
             current_loss = np.mean(attr_dict["losses"])
             if current_loss < best_loss:
                 best_loss = current_loss

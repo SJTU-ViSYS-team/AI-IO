@@ -34,7 +34,7 @@ if __name__ == "__main__":
 
     # ------------------ architecture and learning params -----------------
     parser.add_argument("--lr", type=float, default=1e-04)
-    parser.add_argument("--batch_size", type=int, default=512)
+    parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=100, help="max num epochs")
     parser.add_argument("--save_interval", type=int, default=10, help="save model every n epochs")
     parser.add_argument("--cpu", action="store_true")
@@ -69,6 +69,10 @@ if __name__ == "__main__":
     # ----- plotting and evaluation -----
     add_bool_arg(parser, "save_plots", default=False)
     add_bool_arg(parser, "show_plots", default=False)
+
+    # ------ net debias ---------
+    add_bool_arg(parser, "debias_accel", default=True)
+    parser.add_argument("--debias_model_path", type=str, default="results/debias/checkpoints/checkpoint_164.pt")
 
     args = parser.parse_args()
 

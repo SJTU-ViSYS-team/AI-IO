@@ -5,7 +5,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "train",
+            "name": "Main Train",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/main_learning.py",
@@ -21,7 +21,7 @@
             ]
         },
         {
-            "name": "test",
+            "name": "Main Test",
             "type": "debugpy",
             "request": "launch",
             "program": "${workspaceFolder}/src/main_learning.py",
@@ -34,7 +34,7 @@
                 "--imu_freq=400",
                 "--sampling_freq=400",
                 "--window_time=1",
-                "--model_fn=checkpoint_40.pt",
+                "--model_fn=checkpoint_train_without_debias.pt",
                 "--show_plots"
             ]
         },
@@ -64,6 +64,39 @@
                 "--result_dir=results",
                 "--dataset=DIDO",
                 "--seq=circle_a_2.2_v_3.5_r_1.5_yaw_2022-02-21-23-18-26"
+            ]
+        },
+        {
+            "name": "Debias Train",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debias/De_bias_acc_main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--root_dir=datasets",
+                "--out_dir=results/debias",
+                "--dataset=DIDO",
+                "--mode=train",
+                "--imu_freq=400",
+                // "--sampling_freq=400",
+                "--window_time=1"
+            ]
+        },
+        {
+            "name": "Debias Test",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/debias/De_bias_acc_main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--root_dir=datasets",
+                "--out_dir=results/debias",
+                "--dataset=DIDO",
+                "--mode=test",
+                "--imu_freq=400",
+                // "--sampling_freq=400",
+                "--window_time=1",
+                "--model_path=checkpoint_164.pt"
             ]
         },
         {
