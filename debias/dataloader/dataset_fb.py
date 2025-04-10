@@ -69,7 +69,7 @@ class FbSequence(CompiledSequence):
             accel_raw = np.copy(f["accel_raw"])
             accel_calib = np.copy(f["accel_calib"])
             traj_target = np.copy(f["traj_target"])
-
+            gt_v = traj_target[:, 7:10]
         # subsample from IMU base rate:
         subsample_factor = int(np.around(self.imu_base_freq / self.imu_freq))
         ts = ts[::subsample_factor]
@@ -81,7 +81,6 @@ class FbSequence(CompiledSequence):
         dt = np.expand_dims(np.diff(ts), 1)
 
         # ground truth displacement
-        gt_v = traj_target[:, 7:10]
         gt_dv = gt_v[self.interval :] - gt_v[: -self.interval]
 
         ori_R_gt = Rotation.from_quat(gt_q)
@@ -141,7 +140,7 @@ class FbSequenceDataset(Dataset):
             seq = FbSequence(
                 osp.join(root_dir, dataset_name, data_list[i]), args, data_window_config, **kwargs
             )
-            feat, targ, aux ,ori_r = seq.get_feature(), seq.get_target(), seq.get_aux(), seq.get_r()
+            feat, targ, aux, ori_r = seq.get_feature(), seq.get_target(), seq.get_aux(), seq.get_r()
             self.features.append(feat)
             self.targets.append(targ)
             self.ts.append(aux[:, 0])

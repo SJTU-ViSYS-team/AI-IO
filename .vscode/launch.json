@@ -34,7 +34,7 @@
                 "--imu_freq=400",
                 "--sampling_freq=400",
                 "--window_time=1",
-                "--model_fn=checkpoint_train_without_debias.pt",
+                "--model_fn=checkpoint_20.pt",
                 "--show_plots"
             ]
         },
@@ -96,7 +96,7 @@
                 "--imu_freq=400",
                 // "--sampling_freq=400",
                 "--window_time=1",
-                "--model_path=checkpoint_164.pt"
+                "--model_path=checkpoint_DIDO.pt"
             ]
         },
         {

@@ -208,6 +208,17 @@ def make_plots(args, plot_dict, outdir):
         dpi=dpi,
         figsize=figsize,
     )
+    fig3 = plot_3d(
+        ts,
+        vel_pred_raw,
+        vel_gt,
+        xlb="t(s)",
+        ylbs=["x(m/s)", "y(m/s)", "z(m/s)"],
+        lgs=["Raw integration", "Ground Truth"],
+        num="Velocity (raw integration)",
+        dpi=dpi,
+        figsize=figsize
+    )
     fig4 = plot_3d_err(
         pred_ts,
         preds - targets,
@@ -220,6 +231,7 @@ def make_plots(args, plot_dict, outdir):
 
     fig1.savefig(osp.join(outdir, "velocity_view.png"))
     fig2.savefig(osp.join(outdir, "velocity.png"))
+    fig3.savefig(osp.join(outdir, "velocity_raw.png"))
     fig4.savefig(osp.join(outdir, "pred-err.svg"))
 
     plt.close("all")

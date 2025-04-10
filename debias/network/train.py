@@ -167,7 +167,7 @@ def do_train(network, train_loader, device, epoch, optimizer,args):
     train_targets, train_preds, train_preds_cov, train_losses = [], [], [], []
     network.train()
 
-    for bid, (feat, targ, ts_inter,ori_r,_, _) in enumerate(train_loader):
+    for bid, (feat, targ, ts_inter, ori_r , _, _) in enumerate(train_loader):
         if args.arch == "resnet":
             feat, targ = feat.to(device), targ.to(device)
             optimizer.zero_grad()
@@ -179,9 +179,9 @@ def do_train(network, train_loader, device, epoch, optimizer,args):
             a_body =  (feat[:, 3:6,:].to(device) + pred.unsqueeze(2).repeat(1,1, feat[:, 3:6,:].shape[2])).permute(0,2,1)
             a_world = torch.einsum("atip,atp->ati", ori_r, a_body).permute(0,2,1)
 
-            pred = integration_v(ts_inter, a_world,device, args,r=None,k=1).to(device)
+            pred = integration_v(ts_inter, a_world, device, args, r=None, k=1).to(device)
 
-            loss = get_loss(pred, _, targ, epoch) .to(device)
+            loss = get_loss(pred, _, targ, epoch).to(device)
 
         train_targets.append(torch_to_numpy( targ))
         train_preds.append(torch_to_numpy(pred))

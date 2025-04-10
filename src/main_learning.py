@@ -72,7 +72,7 @@ if __name__ == "__main__":
 
     # ------ net debias ---------
     add_bool_arg(parser, "debias_accel", default=True)
-    parser.add_argument("--debias_model_path", type=str, default="results/debias/checkpoints/checkpoint_164.pt")
+    parser.add_argument("--debias_model_path", type=str, default="results/debias/checkpoints/checkpoint_DIDO.pt")
 
     args = parser.parse_args()
 
