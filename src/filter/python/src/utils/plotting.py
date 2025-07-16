@@ -44,8 +44,8 @@ def xyztPlot(title,
         plt.plot(vec4[:,0], vec4[:,1], label=label4)
     plt.grid()
     plt.legend()
-    plt.xlabel('t')
-    plt.ylabel('x')
+    plt.xlabel('t(s)')
+    plt.ylabel('x(m)')
     plt.title(title)
 
     plt.subplot(312)
@@ -58,8 +58,8 @@ def xyztPlot(title,
         plt.plot(vec4[:,0], vec4[:,2], label=label4)
     plt.grid()
     plt.legend()
-    plt.xlabel('t')
-    plt.ylabel('y')
+    plt.xlabel('t(s)')
+    plt.ylabel('y(m)')
 
     plt.subplot(313)
     plt.plot(vec1[:,0], vec1[:,3], label=label1)
@@ -71,12 +71,13 @@ def xyztPlot(title,
         plt.plot(vec4[:,0], vec4[:,3], label=label4)
     plt.grid()
     plt.legend()
-    plt.xlabel('t')
-    plt.ylabel('z')
+    plt.xlabel('t(s)')
+    plt.ylabel('z(m)')
 
 
 def plotBiases(ts, bg, ba):
     fig = plt.figure('IMU biases')
+    plt.tight_layout(pad=1.08, h_pad=None, w_pad=None, rect=None)
     plt.subplot(211)
     plt.plot(ts, bg[:,0], label="x")
     plt.plot(ts, bg[:,1], label="y")
@@ -104,49 +105,47 @@ def make_position_plots(traj, gt):
     gs = gridspec.GridSpec(2, 2)
     
     fig.add_subplot(gs[:, 0])
-    xyPlot('XY plot', 'x', 'y', 
+    xyPlot('XY plot', 'x(m)', 'y(m)', 
         traj[:, 1:3], 'estim. traj', 
         gt[:, 1:3], 'gt')
     
     fig.add_subplot(gs[0, 1])
-    xyPlot('XZ plot', 'x', 'z', 
+    xyPlot('XZ plot', 'x(m)', 'z(m)', 
         traj[:, [1,3]], 'estim. traj', 
         gt[:, [1,3]], 'gt')
 
     fig.add_subplot(gs[1, 1])
-    xyPlot('YZ plot', 'y', 'z', 
+    xyPlot('YZ plot', 'y(m)', 'z(m)', 
         traj[:, [2,3]], 'estim. traj', 
         gt[:, [2,3]], 'gt')
-
-    # xyz time plots
-    plt.figure('XYZt view')
-    xyztPlot('XYZt', traj[:,:4], 'estim. traj', gt[:,:4], 'gt')
+    fig.subplots_adjust(hspace=0.4)
 
 
 def make_velocity_plots(est_vel, gt_vel):
     plt.figure("Velocity")
     
     plt.subplot(311)
-    plt.plot(gt_vel[:,0], gt_vel[:,1], label='gt')
     plt.plot(est_vel[:,0], est_vel[:,1], label='est')
-    plt.title('x')
-    plt.xlabel('t')
+    plt.plot(gt_vel[:,0], gt_vel[:,1], label='gt')
+    plt.title('Velocity')
+    plt.xlabel('t(s)')
+    plt.ylabel('x(m/s)')
     plt.legend()
     plt.grid()
 
     plt.subplot(312)
-    plt.plot(gt_vel[:,0], gt_vel[:,2], label='gt')
     plt.plot(est_vel[:,0], est_vel[:,2], label='est')
-    plt.title('y')
-    plt.xlabel('t')
+    plt.plot(gt_vel[:,0], gt_vel[:,2], label='gt')
+    plt.xlabel('t(s)')
+    plt.ylabel('y(m/s)')
     plt.legend()
     plt.grid()
 
     plt.subplot(313)
-    plt.plot(gt_vel[:,0], gt_vel[:,3], label='gt')
     plt.plot(est_vel[:,0], est_vel[:,3], label='est')
-    plt.title('z')
-    plt.xlabel('t')
+    plt.plot(gt_vel[:,0], gt_vel[:,3], label='gt')
+    plt.xlabel('t(s)')
+    plt.ylabel('z(m/s)')
     plt.legend()
     plt.grid()
 
@@ -155,29 +154,27 @@ def make_ori_euler_plots(est_xyz, gt_xyz):
     plt.figure("Orientation [Euler angles]")
 
     plt.subplot(311)
-    plt.plot(gt_xyz[:, 0], gt_xyz[:, 1], label='gt')
     plt.plot(est_xyz[:, 0], est_xyz[:, 1], label='est')
-    plt.title('Roll')
-    plt.ylabel('x')
-    plt.xlabel('t')
+    plt.plot(gt_xyz[:, 0], gt_xyz[:, 1], label='gt')
+    plt.title('Attitude')
+    plt.xlabel('t(s)')
+    plt.ylabel('yaw(deg)')
     plt.legend()
     plt.grid()
 
     plt.subplot(312)
-    plt.plot(gt_xyz[:, 0], gt_xyz[:, 2], label='gt')
     plt.plot(est_xyz[:, 0], est_xyz[:, 2], label='est')
-    plt.title('Pitch')
-    plt.ylabel('y')
-    plt.xlabel('t')
+    plt.plot(gt_xyz[:, 0], gt_xyz[:, 2], label='gt')
+    plt.xlabel('t(s)')
+    plt.ylabel('pitch(deg)')
     plt.legend()
     plt.grid()
 
     plt.subplot(313)
-    plt.plot(gt_xyz[:, 0], gt_xyz[:, 3], label='gt')
     plt.plot(est_xyz[:, 0], est_xyz[:, 3], label='est')
-    plt.title('Yaw')
-    plt.ylabel('z')
-    plt.xlabel('t')
+    plt.plot(gt_xyz[:, 0], gt_xyz[:, 3], label='gt')
+    plt.xlabel('t(s)')
+    plt.ylabel('roll(deg)')
     plt.legend()
     plt.grid()
 

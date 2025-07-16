@@ -22,6 +22,7 @@ from filter.python.src.utils.dotdict import dotdict
 from filter.python.src.utils.logging import logging
 from filter.python.src.utils.math_utils import mat_exp
 from filter.python.src.utils.misc import from_usec_to_sec, from_sec_to_usec
+from learning.utils import pose
 
 
 class FilterRunner:
@@ -147,11 +148,12 @@ class FilterRunner:
             R_oldest_state_wfb @ Rs_bofbi[oldest_state_idx_in_net, :, :].T
         )  # [3 x 3]
         Rs_net_wfb = np.einsum("ip,tpj->tij", R_bofboldstate, Rs_bofbi)
+        ypr = np.array([pose.fromRotMatToEulerAng(R) for R in Rs_net_wfb])
         net_accl_w = np.einsum("tij,tj->ti", Rs_net_wfb, net_accl)  # N x 3
         net_gyr_w = np.einsum("tij,tj->ti", Rs_net_wfb, net_gyr)  # N x 3
         net_t_s = from_usec_to_sec(net_t_us)
 
-        return net_gyr_w, net_accl_w, net_t_s
+        return ypr, net_accl, net_gyr, net_t_s
 
     def on_imu_measurement(self, t_us, gyr_raw, acc_raw, thrust=None):
         if self.filter.initialized:
@@ -257,10 +259,16 @@ class FilterRunner:
         assert t_begin_us <= t_oldest_state_us
 
         # get measurement from network
-        net_gyr_w, net_accl_w, net_t_s = self._get_inputs_samples_for_network(
+        ypr, net_accl_b, net_gyr_b, net_t_s = self._get_inputs_samples_for_network(
             t_begin_us, t_oldest_state_us, t_end_us)
+        
+        # print("%.3f, %.3f, %.3f, %.3f" % (t_end_us/1e6, ypr[-1, 0]*180/np.pi, ypr[-1, 1]*180/np.pi, ypr[-1, 2]*180/np.pi))
+
+        if t_end_us>1645456492e6:
+            check =1
+
         meas, meas_cov = self.meas_source.get_measurement(
-            net_t_s, net_gyr_w, net_accl_w)
+            net_t_s, ypr, net_accl_b, net_gyr_b)
         # filter update
         is_available, innovation, jac, noise_mat = \
             self.filter.learnt_model_update(meas, meas_cov, t_oldest_state_us, t_end_us)

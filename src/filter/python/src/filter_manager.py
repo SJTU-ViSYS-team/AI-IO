@@ -33,7 +33,7 @@ class FilterManager:
         self.dataset = args.dataset
         # initialize data IO
         self.input = DataIO()
-        self.input.load(args.root_dir, args.dataset, sequence_name)
+        self.input.load(sequence_name)
 
         # log file initialization
         outfile = os.path.join(outdir, "stamped_traj_estimate.txt")

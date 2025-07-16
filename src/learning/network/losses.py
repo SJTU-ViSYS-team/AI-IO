@@ -163,7 +163,7 @@ def get_loss(pred, pred_logstd, targ, epoch, learn_configs):
             if loss_type == "huber":
                 loss = nn.functional.huber_loss(pred, targ, reduction='none', delta=learn_configs["huber_vel_loss_delta"])
             elif loss_type == "mse":
-                loss = nn.functional.mse_loss(pred, targ, reduce=False)
+                loss = nn.functional.mse_loss(pred, targ, reduction='none')
             else:
                 AssertionError("Unknown loss function!")
         else:
@@ -173,7 +173,7 @@ def get_loss(pred, pred_logstd, targ, epoch, learn_configs):
         if loss_type == "huber":
             loss = nn.functional.huber_loss(pred, targ, reduction='none', delta=learn_configs["huber_vel_loss_delta"])
         elif loss_type == "mse":
-            loss = nn.functional.mse_loss(pred, targ, reduce=False)
+            loss = nn.functional.mse_loss(pred, targ, reduction='none')
         else:
             AssertionError("Unknown loss function!")
     

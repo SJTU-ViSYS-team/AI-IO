@@ -46,7 +46,7 @@ class DiagonalParam(BaseParams):
     But this allows for easy testing.
     """
 
-    covParamNumber = 2
+    covParamNumber = 3
 
     @classmethod
     def vec2Cov(cls, p):
@@ -59,13 +59,13 @@ class DiagonalParam(BaseParams):
         assert p.shape[1] == cls.covParamNumber
         N = p.shape[0]
         # activate rhos as in https://arxiv.org/pdf/1910.14215.pdf
-        covf = torch.zeros((N, 4))
+        covf = torch.zeros((N, 9))
         # on diagonal terms
         covf[:, 0] = torch.exp(2 * p[:, 0])
-        covf[:, 3] = torch.exp(2 * p[:, 1])
-        # covf[:, 8] = torch.exp(2 * p[:, 2])
+        covf[:, 4] = torch.exp(2 * p[:, 1])
+        covf[:, 8] = torch.exp(2 * p[:, 2])
 
-        return covf.reshape((N, 2, 2))
+        return covf.reshape((N, 3, 3))
 
 
 class PearsonParam(BaseParams):

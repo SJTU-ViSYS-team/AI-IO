@@ -1,4 +1,7 @@
+img/
 results/
 datasets/DIDO
+datasets/Euroc
+datasets/Simulation
+debias/
 __pycache__/
-

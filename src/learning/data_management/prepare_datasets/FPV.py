@@ -1,311 +1,240 @@
-"""
-This file is part of Learned Inertial Model Odometry.
-Copyright (C) 2023 Giovanni Cioffi <cioffi at ifi dot uzh dot ch>
-(Robotics and Perception Group, University of Zurich, Switzerland).
-This file is subject to the terms and conditions defined in the file
-'LICENSE', which is part of this source code package.
-"""
-
-"""
-Prepare Blackbird dataset for training, validation, and testing.
-"""
-
-import argparse
 import os
-
-import h5py
+import argparse
 import numpy as np
+import pandas as pd
+import h5py
 from scipy.interpolate import interp1d
-from scipy.spatial.transform import Rotation, Slerp
-import utils as utils
-import rosbag
+from scipy.spatial.transform import Slerp, Rotation
 
+import rosbag
+import utils
+from pyhocon import ConfigFactory
+
+'''
+    python src/learning/data_management/prepare_datasets/FPV.py --config config/FPV.conf
+'''
 # NOTE: 坐标系一致，不需要转换
 # the provided ground truth is the drone body in the NWU vicon frame
 # rotate to have z upwards, to NWU
-R_w_nwu = np.array([
-    [1., 0., 0.],
-    [0., 1., 0.],
-    [0., 0., 1.]])
-t_w_nwu = np.array([0., 0., 0.])
+# R_w_nwu = np.array([
+#     [1., 0., 0.],
+#     [0., 1., 0.],
+#     [0., 0., 1.]])
+# t_w_nwu = np.array([0., 0., 0.])
 
-# rotate from imu to body frame, f-l-u
-R_b_i = np.array([
-    [1., 0., 0.],
-    [0., 1., 0.],
-    [0., 0., 1.]])
-t_b_i = np.array([0., 0., 0.])
+# # rotate from imu to body frame, f-l-u
+# R_b_i = np.array([
+#     [1., 0., 0.],
+#     [0., 1., 0.],
+#     [0., 0., 1.]])
+# t_b_i = np.array([0., 0., 0.])
 
-# initial and final times
-train_times = {}
-train_times['indoor/forward/seq_3'] = [4908.0, 4938.0]
-train_times['indoor/forward/seq_5'] = [1540821126.0, 1540821145.0] # all for train
-train_times['indoor/forward/seq_6'] = [1540821388.0, 1540821398.0]
-train_times['indoor/forward/seq_7'] = [1540821845.0, 1540821890.0]
-train_times['indoor/forward/seq_9'] = [1540822845.0, 1540822873.0] # all for train
-train_times['indoor/forward/seq_10'] = [1540823082.0, 1540823092.0]
+# # w1 to w2: UEN to NWU
+# R_w2_w1 = np.array([
+#     [1., 0., 0.],
+#     [0., 1., 0.],
+#     [0., 0., 1.]
+# ])
+# t_w2_w1 = np.array([0., 0., 0.])
 
-val_times = {}
-val_times['indoor/forward/seq_3'] = [4938.0, 4948.0]
-val_times['indoor/forward/seq_5'] = [1540821126.0, 1540821145.0]
-val_times['indoor/forward/seq_6'] = [1540821398.0, 1540821408.0]
-val_times['indoor/forward/seq_7'] = [1540821890.0, 1540821900.0]
-val_times['indoor/forward/seq_9'] = [1540822845.0, 1540822873.0]
-val_times['indoor/forward/seq_10'] = [1540823092.0, 1540823102.0]
+dt = 0.002
 
-test_times = {}
-test_times['indoor/forward/seq_3'] = [4948.0, 4958.0]
-test_times['indoor/forward/seq_5'] = [1540821126.0, 1540821145.0]
-test_times['indoor/forward/seq_6'] = [1540821408.0, 1540821417.0]
-test_times['indoor/forward/seq_7'] = [1540821900.0, 1540821911.0]
-test_times['indoor/forward/seq_9'] = [1540822845.0, 1540822873.0]
-test_times['indoor/forward/seq_10'] = [1540823102.0, 1540823112.0]
+def process_sequence(dataset_dir, seq_name, mode, save_txt):
+    # base_seq_name = os.path.dirname(os.path.dirname(seq_name))
+    data_dir = os.path.join(dataset_dir, seq_name)
+    assert os.path.isdir(data_dir), '%s' % data_dir
 
+    bag_files = [f for f in os.listdir(data_dir) if f.endswith('.bag')]
+    if len(bag_files) == 0:
+        raise FileNotFoundError("No .bag file found in the directory.")
+    elif len(bag_files) > 1:
+        raise RuntimeError(f"Multiple .bag files found: {bag_files}, please specify one.")
+    else:
+        rosbag_fn = os.path.join(data_dir, bag_files[0])
+    # rosbag_fn = os.path.join(data_dir, 'rosbag.bag')
 
-def prepare_dataset(args):
-    dataset_dir = args.dataset_dir
+    # Read data
+    raw_imu = []  # [ts wx wy wz ax ay az]
+    pose_gt = []
+    dt = 0.002
 
-    # read seq names
-    seq_names = []
-    seq_names.append(utils.get_datalist(os.path.join(dataset_dir, args.data_list)))
-    seq_names = [item for sublist in seq_names for item in sublist]
+    imu_topic = '/snappy_imu'
+    pose_topic = '/groundtruth/pose'
 
-    for idx, seq_name in enumerate(seq_names):
-        # base_seq_name = os.path.dirname(os.path.dirname(seq_name))
-        data_dir = os.path.join(dataset_dir, seq_name)
-        assert os.path.isdir(data_dir), '%s' % data_dir
-        rosbag_fn = os.path.join(data_dir, 'rosbag.bag')
+    print('Reading data from %s' % rosbag_fn)
+    with rosbag.Bag(rosbag_fn, 'r') as bag:
+        for (topic, msg, ts) in bag.read_messages():
+            if topic == imu_topic:
+                imu_i = np.array([
+                    msg.header.stamp.to_sec(),
+                    msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z,
+                    msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
+                raw_imu.append(imu_i)
 
-        # Read data
-        raw_imu = []  # [ts wx wy wz ax ay az]
-        pose_gt = []
-        dt = 0.002
+            elif topic == pose_topic:
+                pose_i = np.array([
+                    msg.header.stamp.to_sec(),
+                    msg.pose.position.x, msg.pose.position.y, msg.pose.position.z,
+                    msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w
+                ])
+                pose_gt.append(pose_i)
+    # TODO: 坐标系变换
 
-        imu_topic = '/snappy_imu'
-        pose_topic = '/groundtruth/pose'
+    raw_imu = np.asarray(raw_imu)
+    pose_gt = np.asarray(pose_gt)
 
-        print('Reading data from %s' % rosbag_fn)
-        with rosbag.Bag(rosbag_fn, 'r') as bag:
-            for (topic, msg, ts) in bag.read_messages():
-                if topic == imu_topic:
-                    imu_i = np.array([
-                        msg.header.stamp.to_sec(),
-                        msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z,
-                        msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
-                    raw_imu.append(imu_i)
+    # include velocities
+    gt_times = pose_gt[:, 0]
+    gt_pos = pose_gt[:, 1:4]
 
-                elif topic == pose_topic:
-                    pose_i = np.array([
-                        msg.header.stamp.to_sec(),
-                        msg.pose.position.x, msg.pose.position.y, msg.pose.position.z,
-                        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w
-                    ])
-                    pose_gt.append(pose_i)
-        # TODO: 坐标系变换
+    # compute velocity
+    v_start = ((gt_pos[1] - gt_pos[0]) / (gt_times[1] - gt_times[0])).reshape((1, 3))
+    gt_vel_raw = (gt_pos[1:] - gt_pos[:-1]) / (gt_times[1:] - gt_times[:-1])[:, None]
+    gt_vel_raw = np.concatenate((v_start, gt_vel_raw), axis=0)
+    # filter
+    gt_vel_x = np.convolve(gt_vel_raw[:, 0], np.ones(5) / 5, mode='same')
+    gt_vel_x = gt_vel_x.reshape((-1, 1))
+    gt_vel_y = np.convolve(gt_vel_raw[:, 1], np.ones(5) / 5, mode='same')
+    gt_vel_y = gt_vel_y.reshape((-1, 1))
+    gt_vel_z = np.convolve(gt_vel_raw[:, 2], np.ones(5) / 5, mode='same')
+    gt_vel_z = gt_vel_z.reshape((-1, 1))
+    gt_vel = np.concatenate((gt_vel_x, gt_vel_y, gt_vel_z), axis=1)
 
-        raw_imu = np.asarray(raw_imu)
-        pose_gt = np.asarray(pose_gt)
+    gt_traj_tmp = np.concatenate((pose_gt, gt_vel), axis=1)  # [ts x y z qx qy qz qw vx vy vz]
 
-        # include velocities
-        gt_times = pose_gt[:, 0]
-        gt_pos = pose_gt[:, 1:4]
+    # In FPV dataset, the sensors measurements are at:
+    # 500 Hz IMU meas.
+    # resample imu at exactly 100 Hz
+    # dt = 0.01
+    t_curr = raw_imu[0, 0]
+    new_times_imu = [t_curr]
+    while t_curr < raw_imu[-1, 0] - dt - 0.0001:
+        t_curr = t_curr + dt
+        new_times_imu.append(t_curr)
+    new_times_imu = np.asarray(new_times_imu) # 严格的500Hz时间序列
+    gyro_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 1:4], axis=0)(new_times_imu)
+    accel_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 4:7], axis=0)(new_times_imu)
+    raw_imu = np.concatenate((new_times_imu.reshape((-1, 1)), gyro_tmp, accel_tmp), axis=1)
 
-        # compute velocity
-        v_start = ((gt_pos[1] - gt_pos[0]) / (gt_times[1] - gt_times[0])).reshape((1, 3))
-        gt_vel_raw = (gt_pos[1:] - gt_pos[:-1]) / (gt_times[1:] - gt_times[:-1])[:, None]
-        gt_vel_raw = np.concatenate((v_start, gt_vel_raw), axis=0)
-        # filter
-        gt_vel_x = np.convolve(gt_vel_raw[:, 0], np.ones(5) / 5, mode='same')
-        gt_vel_x = gt_vel_x.reshape((-1, 1))
-        gt_vel_y = np.convolve(gt_vel_raw[:, 1], np.ones(5) / 5, mode='same')
-        gt_vel_y = gt_vel_y.reshape((-1, 1))
-        gt_vel_z = np.convolve(gt_vel_raw[:, 2], np.ones(5) / 5, mode='same')
-        gt_vel_z = gt_vel_z.reshape((-1, 1))
-        gt_vel = np.concatenate((gt_vel_x, gt_vel_y, gt_vel_z), axis=1)
+    # We down sample to IMU rate
+    times_imu = raw_imu[:, 0]
+    # get initial and final times for interpolations
+    idx_s = 0
+    for ts in times_imu:
+        if ts > gt_traj_tmp[0, 0]:
+            break
+        else:
+            idx_s = idx_s + 1
+    assert idx_s < len(times_imu)
 
-        gt_traj_tmp = np.concatenate((pose_gt, gt_vel), axis=1)  # [ts x y z qx qy qz qw vx vy vz]
+    idx_e = len(times_imu) - 1
+    for ts in reversed(times_imu):
+        if ts < gt_traj_tmp[-1, 0]:
+            break
+        else:
+            idx_e = idx_e - 1
+    assert idx_e > 0
 
-        # In FPV dataset, the sensors measurements are at:
-        # 500 Hz IMU meas.
-        # resample imu at exactly 100 Hz
-        t_curr = raw_imu[0, 0]
-        # dt = 0.01
-        new_times_imu = [t_curr]
-        while t_curr < raw_imu[-1, 0] - dt - 0.0001:
-            t_curr = t_curr + dt
-            new_times_imu.append(t_curr)
-        new_times_imu = np.asarray(new_times_imu) # 严格的500Hz时间序列
-        gyro_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 1:4], axis=0)(new_times_imu)
-        accel_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 4:7], axis=0)(new_times_imu)
-        raw_imu = np.concatenate((new_times_imu.reshape((-1, 1)), gyro_tmp, accel_tmp), axis=1)
+    times_imu = times_imu[idx_s:idx_e + 1]
+    raw_imu = raw_imu[idx_s:idx_e + 1]
+    start_time, end_time = times_imu[0], times_imu[-1]
+    times_config = {
+        mode: [start_time, end_time]
+    }
 
-        # We down sample to IMU rate
-        times_imu = raw_imu[:, 0]
-        # get initial and final times for interpolations
-        idx_s = 0
-        for ts in times_imu:
-            if ts > gt_traj_tmp[0, 0]:
-                break
-            else:
-                idx_s = idx_s + 1
-        assert idx_s < len(times_imu)
+    # interpolate ground-truth samples at imu times
+    groundtruth_pos_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 1:4], axis=0)(times_imu)
+    groundtruth_rot_data = Slerp(gt_traj_tmp[:, 0], Rotation.from_quat(gt_traj_tmp[:, 4:8]))(times_imu)
+    groundtruth_vel_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 8:11], axis=0)(times_imu)
+    groundtruth_rot_data_inv = groundtruth_rot_data.inv()
+    # prepare vel in b frame
+    # groundtruth_vel_data_b = groundtruth_rot_data_inv.apply(groundtruth_vel_data)
 
-        idx_e = len(times_imu) - 1
-        for ts in reversed(times_imu):
-            if ts < gt_traj_tmp[-1, 0]:
-                break
-            else:
-                idx_e = idx_e - 1
-        assert idx_e > 0
+    gt_traj = np.concatenate((times_imu.reshape((-1, 1)),
+                                groundtruth_pos_data,
+                                groundtruth_rot_data.as_quat(),
+                                groundtruth_vel_data), axis=1)
 
-        times_imu = times_imu[idx_s:idx_e + 1]
-        raw_imu = raw_imu[idx_s:idx_e + 1]
+    ts = raw_imu[:, 0]
 
-        # interpolate ground-truth samples at imu times
-        groundtruth_pos_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 1:4], axis=0)(times_imu)
-        groundtruth_rot_data = Slerp(gt_traj_tmp[:, 0], Rotation.from_quat(gt_traj_tmp[:, 4:8]))(times_imu)
-        groundtruth_vel_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 8:11], axis=0)(times_imu)
-        groundtruth_rot_data_inv = groundtruth_rot_data.inv()
-        # prepare vel in b frame
-        # groundtruth_vel_data_b = groundtruth_rot_data_inv.apply(groundtruth_vel_data)
+    # Calibrate
+    imu_calibrator = utils.getImuCalib("Blackbird")
+    b_g = imu_calibrator["gyro_bias"]
+    b_a = imu_calibrator["accel_bias"]
+    w_calib = raw_imu[:, 1:4].T - b_g[:, None]
+    a_calib = raw_imu[:, 4:].T - b_a[:, None]
+    calib_imu = np.concatenate((raw_imu[:, 0].reshape((-1, 1)), w_calib.T, a_calib.T), axis=1)
 
-        gt_traj = np.concatenate((times_imu.reshape((-1, 1)),
-                                  groundtruth_pos_data,
-                                  groundtruth_rot_data.as_quat(),
-                                  groundtruth_vel_data), axis=1)
+    # sample relevant times
+    ts0, ts1 = times_config[mode]
+    idx0_candidates = np.where(ts >= ts0)[0]
+    idx1_candidates = np.where(ts >= ts1)[0]
 
-        ts = raw_imu[:, 0]
+    if len(idx0_candidates) == 0 or len(idx1_candidates) == 0:
+        raise ValueError(f"No valid index found for mode={mode}: ts0={ts0}, ts1={ts1}, ts range=({ts[0]}, {ts[-1]})")
 
-        # Calibrate
-        imu_calibrator = utils.getImuCalib("Blackbird")
-        b_g = imu_calibrator["gyro_bias"]
-        b_a = imu_calibrator["accel_bias"]
-        w_calib = raw_imu[:, 1:4].T - b_g[:, None]
-        a_calib = raw_imu[:, 4:].T - b_a[:, None]
-        calib_imu = np.concatenate((raw_imu[:, 0].reshape((-1, 1)), w_calib.T, a_calib.T), axis=1)
+    idx0 = idx0_candidates[0]
+    idx1 = idx1_candidates[0]
 
-        # sample relevant times
-        ts0_train, ts1_train = train_times[seq_name]
-        idx0_train = np.where(ts > ts0_train)[0][0]
-        idx1_train = np.where(ts > ts1_train)[0][0]
+    ts_mode = ts[idx0:idx1]
+    raw_imu_mode = raw_imu[idx0:idx1]
+    calib_imu_mode = calib_imu[idx0:idx1]
+    gt_traj_mode = gt_traj[idx0:idx1]
 
-        ts0_val, ts1_val = val_times[seq_name]
-        idx0_val = np.where(ts > ts0_val)[0][0]
-        idx1_val = np.where(ts > ts1_val)[0][0]
+    # Not supported on this branch
+    # traj_target_oris_from_imu_list = []
+    # traj_target_oris_from_imu_list.append(gt_traj[0])
+    # traj_target_oris_from_imu = np.asarray(traj_target_oris_from_imu_list)
 
-        ts0_test, ts1_test = test_times[seq_name]
-        idx0_test = np.where(ts > ts0_test)[0][0]
-        idx1_test = np.where(ts > ts1_test)[0][0]
+    # Save
+    out_dir = os.path.join(data_dir, 'processed_data', mode)
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    out_fn = os.path.join(out_dir, "data.hdf5")
+    with h5py.File(out_fn, "w") as f:
+        ts = f.create_dataset("ts", data=ts_mode)
+        gyro_raw = f.create_dataset("gyro_raw", data=raw_imu_mode[:, 1:4])
+        accel_raw = f.create_dataset("accel_raw", data=raw_imu_mode[:, 4:])
+        gyro_calib = f.create_dataset("gyro_calib", data=calib_imu_mode[:, 1:4])
+        accel_calib = f.create_dataset("accel_calib", data=calib_imu_mode[:, 4:])
+        traj_target = f.create_dataset("traj_target", data=gt_traj_mode[:, 1:11])
+        # traj_target_oris_from_imu_target = \
+        #     f.create_dataset("traj_target_oris_from_imu", data=traj_target_oris_from_imu[:, 1:])
+        gyro_bias = f.create_dataset("gyro_bias", data=b_g)
+        accel_bias = f.create_dataset("accel_bias", data=b_a)
 
-        ts_train = ts[idx0_train:idx1_train]
-        raw_imu_train = raw_imu[idx0_train:idx1_train]
-        calib_imu_train = calib_imu[idx0_train:idx1_train]
-        gt_traj_train = gt_traj[idx0_train:idx1_train]
-
-        ts_val = ts[idx0_val:idx1_val]
-        raw_imu_val = raw_imu[idx0_val:idx1_val]
-        calib_imu_val = calib_imu[idx0_val:idx1_val]
-        gt_traj_val = gt_traj[idx0_val:idx1_val]
-
-        ts_test = ts[idx0_test:idx1_test]
-        raw_imu_test = raw_imu[idx0_test:idx1_test]
-        calib_imu_test = calib_imu[idx0_test:idx1_test]
-        gt_traj_test = gt_traj[idx0_test:idx1_test]
-
-        # Not supported on this branch
-        # traj_target_oris_from_imu_list = []
-        # traj_target_oris_from_imu_list.append(gt_traj[0])
-        # traj_target_oris_from_imu = np.asarray(traj_target_oris_from_imu_list)
-
-        # Save
-        # train
-        out_dir = os.path.join(data_dir, "train")
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        out_fn = os.path.join(out_dir, "data.hdf5")
-        with h5py.File(out_fn, "w") as f:
-            ts = f.create_dataset("ts", data=ts_train)
-            gyro_raw = f.create_dataset("gyro_raw", data=raw_imu_train[:, 1:4])
-            accel_raw = f.create_dataset("accel_raw", data=raw_imu_train[:, 4:])
-            gyro_calib = f.create_dataset("gyro_calib", data=calib_imu_train[:, 1:4])
-            accel_calib = f.create_dataset("accel_calib", data=calib_imu_train[:, 4:])
-            traj_target = f.create_dataset("traj_target", data=gt_traj_train[:, 1:11])
-            # traj_target_oris_from_imu_target = \
-            #     f.create_dataset("traj_target_oris_from_imu", data=traj_target_oris_from_imu[:, 1:])
-            gyro_bias = f.create_dataset("gyro_bias", data=b_g)
-            accel_bias = f.create_dataset("accel_bias", data=b_a)
-
-        if args.save_txt:
-            np.savetxt(os.path.join(out_dir, "imu_raw.txt"),
-                       raw_imu_train, fmt='%.12f', header='ts wx wy wz ax ay az')
-            np.savetxt(os.path.join(out_dir, "imu_calib.txt"),
-                       calib_imu_train, fmt='%.12f', header='ts wx wy wz ax ay az')
-            np.savetxt(os.path.join(out_dir, "stamped_groundtruth_imu.txt"),
-                       gt_traj_train, fmt='%.12f', header='ts x y z qx qy qz qw')
-
-        print("File data.hdf5 written to " + out_fn)
-
-        # val
-        out_dir = os.path.join(data_dir, "val")
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        out_fn = os.path.join(out_dir, "data.hdf5")
-        with h5py.File(out_fn, "w") as f:
-            ts = f.create_dataset("ts", data=ts_val)
-            gyro_raw = f.create_dataset("gyro_raw", data=raw_imu_val[:, 1:4])
-            accel_raw = f.create_dataset("accel_raw", data=raw_imu_val[:, 4:])
-            gyro_calib = f.create_dataset("gyro_calib", data=calib_imu_val[:, 1:4])
-            accel_calib = f.create_dataset("accel_calib", data=calib_imu_val[:, 4:])
-            traj_target = f.create_dataset("traj_target", data=gt_traj_val[:, 1:11])
-            # traj_target_oris_from_imu_target = \
-            #     f.create_dataset("traj_target_oris_from_imu", data=traj_target_oris_from_imu[:, 1:])
-            gyro_bias = f.create_dataset("gyro_bias", data=b_g)
-            accel_bias = f.create_dataset("accel_bias", data=b_a)
-
-        if args.save_txt:
-            np.savetxt(os.path.join(out_dir, "imu_raw.txt"),
-                       raw_imu_val, fmt='%.12f', header='ts wx wy wz ax ay az')
-            np.savetxt(os.path.join(out_dir, "imu_calib.txt"),
-                       calib_imu_val, fmt='%.12f', header='ts wx wy wz ax ay az')
-            np.savetxt(os.path.join(out_dir, "stamped_groundtruth_imu.txt"),
-                       gt_traj_val, fmt='%.12f', header='ts x y z qx qy qz qw')
-
-        print("File data.hdf5 written to " + out_fn)
-
-        # test
-        out_dir = os.path.join(data_dir, "test")
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        out_fn = os.path.join(out_dir, "data.hdf5")
-        with h5py.File(out_fn, "w") as f:
-            ts = f.create_dataset("ts", data=ts_test)
-            gyro_raw = f.create_dataset("gyro_raw", data=raw_imu_test[:, 1:4])
-            accel_raw = f.create_dataset("accel_raw", data=raw_imu_test[:, 4:])
-            gyro_calib = f.create_dataset("gyro_calib", data=calib_imu_test[:, 1:4])
-            accel_calib = f.create_dataset("accel_calib", data=calib_imu_test[:, 4:])
-            traj_target = f.create_dataset("traj_target", data=gt_traj_test[:, 1:11])
-            # traj_target_oris_from_imu_target = \
-            #     f.create_dataset("traj_target_oris_from_imu", data=traj_target_oris_from_imu[:, 1:])
-            gyro_bias = f.create_dataset("gyro_bias", data=b_g)
-            accel_bias = f.create_dataset("accel_bias", data=b_a)
-
-        if args.save_txt:
-            np.savetxt(os.path.join(out_dir, "imu_raw.txt"),
-                       raw_imu_test, fmt='%.12f', header='ts wx wy wz ax ay az')
-            np.savetxt(os.path.join(out_dir, "imu_calib.txt"),
-                       calib_imu_test, fmt='%.12f', header='ts wx wy wz ax ay az')
-            np.savetxt(os.path.join(out_dir, "stamped_groundtruth_imu.txt"),
-                       gt_traj_test, fmt='%.12f', header='ts x y z qx qy qz qw')
-
-        print("File data.hdf5 written to " + out_fn)
-
+    print(f"数据保存到 {out_fn}")
+    # 如果需要保存为文本文件
+    if save_txt:
+        txt_path = os.path.join(out_dir, "stamped_groundtruth_imu.txt")
+        np.savetxt(
+            txt_path, gt_traj_mode[:, :8], fmt="%.6f",
+            header="ts x y z qx qy qz qw"
+        )
+        print(f"数据保存到 {txt_path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_dir", type=str)
-    parser.add_argument("--data_list", type=str)
-    parser.add_argument("--save_txt", action="store_true", default=True)
+    parser = argparse.ArgumentParser(description="处理数据集并生成 HDF5 数据")
+    parser.add_argument("--config", type=str, required=True, help="配置文件路径（YAML）")
+    parser.add_argument("--save_txt", action="store_true", help="是否保存为文本文件", default=True)
     args = parser.parse_args()
 
-    prepare_dataset(args)
+    config = ConfigFactory.parse_file(args.config)
+
+    for split in ['train', 'val', 'test']:
+        split_config = config.get(split, {})
+        if not split_config:
+            continue
+
+        mode = split_config.get("mode", split)
+        for dataset in split_config["data_list"]:
+            dataset_dir = dataset["data_root"]
+            for seq_name in dataset["data_drive"]:
+                print(f"处理 {mode.upper()} 数据集: {seq_name}")
+                process_sequence(
+                    dataset_dir=dataset_dir,
+                    seq_name=seq_name,
+                    mode=mode,
+                    save_txt=args.save_txt
+                )
 

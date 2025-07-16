@@ -10,6 +10,7 @@ This file is subject to the terms and conditions defined in the file
 Reference: https://github.com/CathIAS/TLIO/blob/master/src/network/train.py
 """
 
+import datetime
 import json
 import os
 import signal
@@ -28,10 +29,17 @@ from learning.network.model_factory import get_model
 from learning.utils.argparse_utils import arg_conversion
 from learning.utils.logging import logging
 
+from pyhocon import ConfigFactory
 
-def get_datalist(list_path):
-    with open(list_path) as f:
-        data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
+def get_datalist(config):
+    data_list = []
+    for entry in config["data_list"]:
+        root = entry["data_root"]
+        drives = entry["data_drive"]
+        for drive in drives:
+            data_list.append(os.path.join(root, drive, "processed_data", config["mode"]))
+    # with open(list_path) as f:
+    #     data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
     return data_list
 
 
@@ -92,7 +100,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
     return attr_dict
 
 
-def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
+def run_train(learn_configs, network, train_loader, device, optimizer, epoch, debias_net=None):
     """
     Train network for one epoch
     """
@@ -100,6 +108,12 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
     # errors_all, losses_all = [], []
 
     network.train()
+    # if learn_configs["switch_iter"] is not None and epoch == learn_configs["switch_iter"]:
+    #     for p in network.linear2.parameters():
+    #         p.requires_grad = True
+
+    if debias_net:
+        debias_net.eval()
 
     for _, (feat, targ, ts, gyro, accel) in enumerate(train_loader):
         # feat_i = [[feat_ypr], [feat_accel]]
@@ -108,6 +122,12 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
         # dims = [batch size, 3]
         feat = feat.to(device)
         targ = targ.to(device)
+        # 预处理加速度数据
+        if debias_net:
+            with torch.no_grad():
+                accel_data = feat[:, 3:6, :]  # 取出加速度数据
+                accel_debiased = accel_data + debias_net(accel_data).unsqueeze(2).repeat(1,1, accel_data.shape[2])  # 通过去偏网络
+                feat[:, 3:6, :] = accel_debiased  # 替换原来的加速度数据
 
         optimizer.zero_grad()
 
@@ -173,10 +193,15 @@ def save_model(args, epoch, network, optimizer, interrupt=False):
 
 def train(args):
     try:
-        if args.root_dir is None:
-            raise ValueError("root_dir must be specified.")
-        if args.train_list is None:
-            raise ValueError("train_list must be specified.")
+        if args.data_config is None:
+            raise ValueError("data_config must be specified.")
+        # 读取 config 文件（你可以用一个新的参数 --data_config 指定路径）
+        conf = ConfigFactory.parse_file(args.data_config)
+
+        # if args.root_dir is None:
+        #     raise ValueError("root_dir must be specified.")
+        # if args.train_list is None:
+        #     raise ValueError("train_list must be specified.")
         if args.dataset is None:
             raise ValueError("dataset must be specified.")
         args.out_dir = os.path.join(args.out_dir, args.dataset)
@@ -196,8 +221,15 @@ def train(args):
             logging.info(f"Training output writes to {args.out_dir}")
         else:
             raise ValueError("out_dir must be specified.")
-        if args.val_list is None:
-            logging.warning("val_list != specified.")
+        # 提取 train 配置
+        train_config = conf["train"]
+        train_list = get_datalist(train_config)
+        # 提取 val 配置
+        run_validation = True
+        val_config = conf["val"]
+        val_list = get_datalist(val_config)
+        # if args.val_list is None:
+        #     logging.warning("val_list != specified.")
         if args.continue_from != None:
             if os.path.exists(args.continue_from):
                 logging.info(
@@ -234,7 +266,10 @@ def train(args):
     network = get_model(input_dim, output_dim).to(
         device
     )
-        
+    # # 冻结协方差学习的权重
+    # for p in network.linear2.parameters():
+    #     p.requires_grad = False
+
     n_params = network.get_num_params()
     params = network.parameters()
     logging.info(f'TCN network loaded to device {device}')
@@ -249,7 +284,7 @@ def train(args):
         "in_dim": (
             100
         )}
-        debias_net = get_debias_model("resnet", debias_net_config, 3, 3).to(device)
+        debias_net = get_debias_model("tcn", debias_net_config, 3, 3).to(device)
         debias_net.load_state_dict(debias_checkpoint["model_state_dict"])
         debias_net.eval()
         logging.info(f"Model {args.debias_model_path} loaded to device {device}.")
@@ -259,7 +294,7 @@ def train(args):
     # Training / Validation datasets
     train_loader, val_loader = None, None
     start_t = time.time()
-    train_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.train_list))
+    # train_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.train_list))
     try:
         train_dataset = construct_dataset(args, train_list, data_window_config)
         train_loader = DataLoader(
@@ -271,15 +306,16 @@ def train(args):
     logging.info(f"Training set loaded. Loading time: {end_t - start_t:.3f}s")
     logging.info(f"Number of train samples: {len(train_dataset)}")
 
-    run_validation = False
-    val_list = None
-    if args.val_list != '':
-        run_validation = True
-        val_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.val_list))
+    # run_validation = False
+    # val_list = None
+    # if args.val_list != '':
+    #     run_validation = True
+    #     val_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.val_list))
 
-    optimizer = torch.optim.Adam(params, args.lr)
+    trainable_params = filter(lambda p: p.requires_grad, network.parameters())
+    optimizer = torch.optim.Adam(trainable_params, args.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.1, patience=10, verbose=True, eps=1e-12
+        optimizer, factor=0.1, patience=5, verbose=True, eps=1e-5
     )
     logging.info(f"Optimizer: {optimizer}, Scheduler: {scheduler}")
 
@@ -303,7 +339,8 @@ def train(args):
                 f"Detected saved checkpoint, starting from epoch {start_epoch}"
             )
 
-    summary_writer = SummaryWriter(os.path.join(args.out_dir, "logs"))
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    summary_writer = SummaryWriter(os.path.join(args.out_dir, "logs", timestamp))
     summary_writer.add_text("info", f"total_param: {n_params}")
 
     logging.info(f"-------------- Init, Epoch {start_epoch} --------------")
@@ -334,7 +371,7 @@ def train(args):
     ##############################################
     ############ actual training loop ############
     ##############################################
-    for epoch in range(start_epoch + 1, args.epochs):
+    for epoch in range(start_epoch + 1, args.epochs + 1):
         signal.signal(
             signal.SIGINT, partial(stop_signal_handler, args, epoch, network, optimizer)
         )
@@ -352,20 +389,22 @@ def train(args):
 
         if run_validation:
             # run validation on a random sequence in the validation dataset
-            if not args.dataset == 'Blackbird':
-                val_sample = np.random.randint(0, len(val_list))
-                val_seq = val_list[val_sample]
-                logging.info("Running validation on %s" % val_seq)
-                try:
-                    val_dataset = construct_dataset(args, [val_seq], data_window_config, mode="val")
-                    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=True)  # , num_workers=16)
-                except OSError as e:
-                    logging.error(e)
-                    return
+            # if not args.dataset == 'Blackbird':
+            #     val_sample = np.random.randint(0, len(val_list))
+            #     val_seq = val_list[val_sample]
+            #     logging.info("Running validation on %s" % val_seq)
+            #     try:
+            #         val_dataset = construct_dataset(args, [val_seq], data_window_config, mode="val")
+            #         val_loader = DataLoader(val_dataset, batch_size=128, shuffle=True)  # , num_workers=16)
+            #     except OSError as e:
+            #         logging.error(e)
+            #         return
 
             val_attr_dict = get_inference(net_config, network, val_loader, device, epoch, debias_net)
             write_summary(summary_writer, val_attr_dict, epoch, optimizer, "val")
             current_loss = np.mean(val_attr_dict["losses"])
+
+            # scheduler.step(current_loss)
 
             if current_loss < best_loss:
                 best_loss = current_loss
@@ -387,18 +426,18 @@ def train(args):
 
 
 def construct_dataset(args, data_list, data_window_config, mode="train"):
-    if args.dataset == "DIDO":
-        train_dataset = ModelDIDODataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+    if args.dataset == "Euroc":
+        train_dataset = ModelEurocDataset(data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "DIDO":
+        train_dataset = ModelDIDODataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "Blackbird":
-        train_dataset = ModelBlackbirdDataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+        train_dataset = ModelBlackbirdDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "FPV":
-        train_dataset = ModelFPVDataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+        train_dataset = ModelFPVDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "Simulation":
-        train_dataset = ModelSimulationDataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+        train_dataset = ModelSimulationDataset(data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "ours":
+        train_dataset = ModelOursDataset(data_list, args, data_window_config, mode=mode)
     else:
         raise ValueError(f"Unknown dataset {args.dataset}")
     return train_dataset

@@ -20,7 +20,7 @@ from learning.network.covariance_parametrization import DiagonalParam
 class MeasSourceNetwork:
     def __init__(self, model_path, force_cpu=False):
         # network
-        self.net = get_model(6, 2)
+        self.net = get_model(9, 3)
 
         # load trained network model
         if not torch.cuda.is_available() or force_cpu:
@@ -36,27 +36,27 @@ class MeasSourceNetwork:
         self.net.eval().to(self.device)
         logging.info("Model {} loaded to device {}.".format(model_path, self.device))
 
-    def get_measurement(self, net_t_s, net_gyr_w, net_acc_w):
+    def get_measurement(self, net_t_s, ypr, net_accl_b, net_gyr_b):
         meas, meas_cov = self.get_vb_measurement_model_net(
-            net_t_s, net_gyr_w, net_acc_w)
+            net_t_s, ypr, net_accl_b, net_gyr_b)
         return meas, meas_cov
 
-    def get_vb_measurement_model_net(self, net_t_s, net_gyr_w, net_accl_w):
-        features = np.concatenate([net_gyr_w, net_accl_w], axis=1)  # N x 6
+    def get_vb_measurement_model_net(self, net_t_s, ypr, net_accl_b, net_gyr_b):
+        features = np.concatenate([ypr, net_accl_b, net_gyr_b], axis=1)  # N x 9
         features_t = torch.unsqueeze(
             torch.from_numpy(features.T).float().to(self.device), 0
-        )  # 1 x 6 x N
+        )  # 1 x 9 x N
 
         # get inference
         vb_learnt, vb_cov_learned = self.net(features_t)
 
         # define measurement
         meas = vb_learnt.cpu().detach().numpy()
-        meas = meas.reshape((2, 1))
+        meas = meas.reshape((3, 1))
         # TODO: learn covariance
         # meas_cov = np.eye(3)
         vb_cov_learned[vb_cov_learned < -4] = -4  # exp(2 * -4) =~ 0.00034
-        meas_cov = DiagonalParam.vec2Cov(vb_cov_learned).cpu().detach().numpy()[0, :, :]
+        meas_cov = DiagonalParam.vec2Cov(vb_cov_learned).cpu().detach().numpy()[0, :, :] *10
 
         return meas, meas_cov
 

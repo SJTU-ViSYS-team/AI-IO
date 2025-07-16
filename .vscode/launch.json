@@ -11,13 +11,14 @@
             "program": "${workspaceFolder}/src/main_learning.py",
             "console": "integratedTerminal",
             "args": [
-                "--root_dir=datasets",
+                // "--root_dir=datasets",
+                "--data_config=config/FPV.conf",
                 "--out_dir=results",
-                "--dataset=DIDO",
+                "--dataset=FPV",
                 "--mode=train",
-                "--imu_freq=400",
-                "--sampling_freq=400",
-                "--window_time=1.0"
+                "--imu_freq=500",
+                "--sampling_freq=500",
+                "--window_time=1"
             ]
         },
         {
@@ -27,13 +28,14 @@
             "program": "${workspaceFolder}/src/main_learning.py",
             "console": "integratedTerminal",
             "args": [
-                "--root_dir=datasets",
+                // "--root_dir=datasets",
+                "--data_config=config/FPV.conf",
                 "--out_dir=results",
-                "--dataset=DIDO",
+                "--dataset=FPV",
                 "--mode=test",
-                "--imu_freq=400",
-                "--sampling_freq=400",
-                "--window_time=1",
+                "--imu_freq=500",
+                "--sampling_freq=500",
+                "--window_time=0.5",
                 "--model_fn=checkpoint_20.pt",
                 "--show_plots"
             ]
@@ -45,11 +47,12 @@
             "program": "${workspaceFolder}/src/main_filter.py",
             "console": "integratedTerminal",
             "args": [
-                "--root_dir=datasets",
+                // "--root_dir=datasets",
+                "--data_config=config/FPV.conf",
                 "--out_dir=results",
-                "--dataset=DIDO",
-                "--data_list=test.txt",
-                "--checkpoint_fn=checkpoint_10.pt", //
+                "--dataset=FPV",
+                // "--data_list=test.txt",
+                "--checkpoint_fn=checkpoint_20.pt", //
                 "--model_param_fn=model_net_parameters.json"
             ]
         },
@@ -60,10 +63,11 @@
             "program": "${workspaceFolder}/src/filter/python/plot_filter_output.py",
             "console": "integratedTerminal",
             "args": [
-                "--dataset_dir=datasets",
+                // "--dataset_dir=datasets",
+                "--data_config=config/FPV.conf",
                 "--result_dir=results",
-                "--dataset=DIDO",
-                "--seq=circle_a_2.2_v_3.5_r_1.5_yaw_2022-02-21-23-18-26"
+                "--dataset=FPV"
+                // "--seq=random/speed5/processed_data/test"
             ]
         },
         {
@@ -96,7 +100,7 @@
                 "--imu_freq=400",
                 // "--sampling_freq=400",
                 "--window_time=1",
-                "--model_path=checkpoint_DIDO.pt"
+                "--model_path=checkpoint_1640.pt"
             ]
         },
         {

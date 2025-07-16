@@ -34,11 +34,11 @@ class DataIO:
         self.accel_bias = None
         self.gt_traj = None
 
-    def load(self, root_dir, dataset, sequence):
+    def load(self, sequence):
         """
         load data
         """
-        indir = os.path.join(root_dir, dataset, sequence)
+        indir = sequence
         with h5py.File(os.path.join(indir, "data.hdf5"), "r") as f:
             ts = np.copy(f["ts"])
             gyro_raw = np.copy(f["gyro_raw"])

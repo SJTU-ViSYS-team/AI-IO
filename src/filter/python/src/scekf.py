@@ -506,7 +506,7 @@ class ImuMSCKF:
         # symmetrize R
         R = 0.5 * (R + R.T)
         R[R < 1e-10] = 0
-        # R = R[:2, :2]
+        R = R[:2, :2]
 
         # compute prediction
         # pred = self.state.si_ps[end_idx] - self.state.si_ps[begin_idx]
@@ -521,7 +521,7 @@ class ImuMSCKF:
         H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = self.state.si_Rs[end_idx].T
         H = H[:2, :]
 
-        pred = pred[:2,:]
+        # pred = pred[:2,:]
         assert (
             self.Sigma.shape[0] == H.shape[1]
         ), "state covariance and matrix H does not match shape!"
@@ -547,7 +547,7 @@ class ImuMSCKF:
                 self.last_success_mahalanobis = self.state.s_timestamp_us
 
         innovation = meas - pred
-        # innovation = innovation[:2]
+        innovation = innovation[:2]
         
         self.meas = meas
         self.pred = pred

@@ -12,19 +12,6 @@ import utils
     python src/learning/data_management/prepare_datasets/simulation.py --dataset_dir datasets/Simulation/ --data_list data_list.txt
 '''
 # # the provided ground truth is the drone body in the NED vicon frame
-# # rotate to have z upwards, NED to NWU
-# R_w_ned = np.array([
-#     [1., 0., 0.],
-#     [0., -1., 0.],
-#     [0., 0., -1.]])
-# t_w_ned = np.array([0., 0., 0.])
-
-# # rotate from body to imu frame
-# R_b_i = np.array([
-#     [0., -1., 0.],
-#     [1., 0., 0.],
-#     [0., 0., 1.]])
-# t_b_i = np.array([0., 0., 0.])
 
 # body, imu坐标系一致
 # rotate from imu to body frame
@@ -48,61 +35,46 @@ R_w2_w1 = np.array([
 t_w2_w1 = np.array([0., 0., 0.])
 
 # 示例的时间范围配置（自定义）
-# train_times = {
-#     'mav0': [1403636900.0, 1403637000.0],
-#     'sequence2': [20.0, 30.0]
-# }
-# val_times = {
-#     'mav0': [1403636880.0, 1403636900.0],
-#     'sequence2': [30.0, 35.0]
-# }
-# test_times = {
-#     'mav0': [1403636860.0, 1403636880.0],
-#     'sequence2': [35.0, 40.0]
-# }
 train_times = {
-    # 'sim1': [0.0, 120.0],
-    # 'sim1_double': [0.0, 240.0],
-    # 'sim_line_add_noise_200Hz': [0.0 + 1e5, 70.0 + 1e5],
-    # 'sim_rectangle_3_1_1': [0.0 + 1e5, 120.0 + 1e5],
-    # 'sim_rectangle_8_1_1': [0.0 + 1e5, 160.0 + 1e5],
-    # 'sim_rectangle_add_noise': [0.0 + 1e5, 160.0 + 1e5],
-    # 'sim_rectangle_add_noise_200Hz': [0.0 + 1e5, 160.0 + 1e5],
-    # 'altitude_hold': [0.0 + 1e5, 70.0 + 1e5],
-    # 'FPV_500Hz_1000s': [0.0 + 1e5, 800.0 + 1e5],
-    # 'FPV_sim_hover': [0.0 + 1e5, 20.0 + 1e5],
-    # 'FPV_sim_line': [0.0 + 1e5, 20.0 + 1e5],
-    'DIDO_random_high_speed_1000s': [0.0 + 1e5, 800.0 + 1e5] 
+    'circle/speed1': [0.0, 37.475],
+    'circle/speed3': [0.0, 18.597],
+    'circle/speed5': [0.0, 18.197],
+    'circle/speed7': [0.0, 6.510],
+    'eight/speed1': [0.0, 48.212],
+    'eight/speed3': [0.0, 28.331],
+    'eight/speed5': [0.0, 29.596],
+    'eight/speed7': [0.0, 26.575],
+    'random/speed1': [0.0, 206.215],
+    'random/speed3': [0.0, 176.151],
+    'random/speed5': [0.0, 100.0]
 }
 val_times = {
-    # 'sim1': [120.0, 140.0],
-    # 'sim1_double': [240.0, 280.0],
-    # 'sim_line_add_noise_200Hz': [70.0 + 1e5, 85.0 + 1e5],
-    # 'sim_rectangle_3_1_1': [120.0 + 1e5, 160.0 + 1e5],
-    # 'sim_rectangle_8_1_1': [160.0 + 1e5, 180.0 + 1e5],
-    # 'sim_rectangle_add_noise': [160.0 + 1e5, 180.0 + 1e5],
-    # 'sim_rectangle_add_noise_200Hz': [160.0 + 1e5, 180.0 + 1e5],
-    # 'altitude_hold': [70.0 + 1e5, 85.0 + 1e5],
-    # 'FPV_500Hz_1000s': [800.0 + 1e5, 900.0 + 1e5],
-    # 'FPV_sim_hover': [0.0 + 1e5, 20.0 + 1e5],
-    # 'FPV_sim_line': [0.0 + 1e5, 20.0 + 1e5],
-    'DIDO_random_high_speed_1000s': [800.0 + 1e5, 900.0 + 1e5]
+    'circle/speed1': [0.0, 37.475],
+    'circle/speed3': [0.0, 18.597],
+    'circle/speed5': [0.0, 18.197],
+    'circle/speed7': [0.0, 16.510],
+    'eight/speed1': [0.0, 48.212],
+    'eight/speed3': [0.0, 28.331],
+    'eight/speed5': [0.0, 29.596],
+    'eight/speed7': [0.0, 26.575],
+    'random/speed1': [0.0, 206.215],
+    'random/speed3': [0.0, 176.151],
+    'random/speed5': [100.0, 140.0]
 }
 test_times = {
-    # 'sim1': [140.0, 160.0],
-    # 'sim1_double': [280.0, 320.0],
-    # 'sim_line_add_noise_200Hz': [85.0 + 1e5, 100.0 + 1e5],
-    # 'sim_rectangle_3_1_1': [160.0 + 1e5, 200.0 + 1e5],
-    # 'sim_rectangle_8_1_1': [180.0 + 1e5, 200.0 + 1e5],
-    # 'sim_rectangle_add_noise': [180.0 + 1e5, 200.0 + 1e5],
-    # 'sim_rectangle_add_noise_200Hz': [180.0 + 1e5, 200.0 + 1e5],
-    # 'altitude_hold': [85.0 + 1e5, 100.0 + 1e5],
-    # 'FPV_500Hz_1000s': [900.0 + 1e5, 1000.0 + 1e5],
-    # 'FPV_sim_hover': [0.0 + 1e5, 20.0 + 1e5],
-    # 'FPV_sim_line': [0.0 + 1e5, 20.0 + 1e5],
-    'DIDO_random_high_speed_1000s': [900.0 + 1e5, 1000.0 + 1e5]
+    'circle/speed1': [0.0, 37.475],
+    'circle/speed3': [0.0, 18.597],
+    'circle/speed5': [0.0, 18.197],
+    'circle/speed7': [6.510, 16.510],
+    'eight/speed1': [0.0, 48.212],
+    'eight/speed3': [0.0, 28.331],
+    'eight/speed5': [0.0, 29.596],
+    'eight/speed7': [0.0, 26.575],
+    'random/speed1': [0.0, 206.215],
+    'random/speed3': [0.0, 176.151],
+    'random/speed5': [140.0, 185.077]
 }
-dt = 0.0025
+dt = 1.0/100 # 实际是108Hz
 
 def prepare_dataset(args):
     """
@@ -156,8 +128,8 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
     pose_data = pd.read_csv(pose_csv)
     pose_data = pose_data.apply(process_pose_data_row, axis=1)
     # print(imu_data.columns)
-    imu_times = imu_data['#timestamp [ns]'].values / 1e9
-    pose_times = pose_data['#timestamp'].values / 1e9
+    imu_times = imu_data['t_imu(ns)'].values / 1e9
+    pose_times = pose_data['t_vicon(ns)'].values / 1e9
 
     # Calibrate
     imu_calibrator = utils.getImuCalib("Euroc")
@@ -167,21 +139,21 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
     # a_calib = raw_imu[:, 4:].T - b_a[:, None]
 
     # 插值 IMU 数据 (角速度和加速度)
-    interp_gyro = interp1d(imu_times, imu_data[['w_RS_S_x [rad s^-1]', 'w_RS_S_y [rad s^-1]', 'w_RS_S_z [rad s^-1]']].values, axis=0, fill_value="extrapolate")
-    interp_accel = interp1d(imu_times, imu_data[['a_RS_S_x [m s^-2]', 'a_RS_S_y [m s^-2]', 'a_RS_S_z [m s^-2]']].values, axis=0, fill_value="extrapolate")
+    interp_gyro = interp1d(imu_times, imu_data[['wx', 'wy', 'wz']].values, axis=0, fill_value="extrapolate")
+    interp_accel = interp1d(imu_times, imu_data[['ax', 'ay', 'az']].values, axis=0, fill_value="extrapolate")
     # 插值位姿数据 (位置)
-    interp_position = interp1d(pose_times, pose_data[[' p_RS_R_x [m]', ' p_RS_R_y [m]', ' p_RS_R_z [m]']].values, axis=0, fill_value="extrapolate")
+    interp_position = interp1d(pose_times, pose_data[['x', 'y', 'z']].values, axis=0, fill_value="extrapolate")
     # 插值位姿数据 (速度)
-    interp_velocity = interp1d(pose_times, pose_data[[' v_RS_R_x [m s^-1]', ' v_RS_R_y [m s^-1]', ' v_RS_R_z [m s^-1]']].values, axis=0, fill_value="extrapolate")
+    interp_velocity = interp1d(pose_times, pose_data[['vx', 'vy', 'vz']].values, axis=0, fill_value="extrapolate")
     # 插值位姿数据 (姿态 - 四元数)
-    rotations = Rotation.from_quat(pose_data[[' q_RS_x []', ' q_RS_y []', ' q_RS_z []', ' q_RS_w []']].values)
+    rotations = Rotation.from_quat(pose_data[['qx', 'qy', 'qz', 'qw']].values)
     slerp = Slerp(pose_times, rotations)
 
     for split, time_range in times_config.items():
         # 过滤时间范围内的数据
         start_time, end_time = time_range
-        imu_mask = (imu_times >= start_time) & (imu_times <= end_time)
-        imu_times_part = imu_times[imu_mask]
+        pose_mask = (pose_times >= start_time) & (pose_times <= end_time)
+        pose_times_part = pose_times[pose_mask]
         # pose_mask = (pose_times >= start_time) & (pose_times <= end_time)
 
         # imu_data_part = imu_data[imu_mask]
@@ -190,7 +162,7 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
         # pose_times_part = pose_data_part['#timestamp'].values
 
         # 生成严格的时间序列
-        strict_times = np.arange(imu_times_part[0], imu_times_part[-1], dt)  # 0.005s 间隔
+        strict_times = np.arange(pose_times_part[0], pose_times_part[-1], dt)  # 0.005s 间隔
 
         # 获取插值数据
         gyro_data = interp_gyro(strict_times)
@@ -200,7 +172,6 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
         velocity_data = interp_velocity(strict_times)
         orientation_data = slerp(strict_times).as_quat()
 
-        # FIXME: 当前初始速度为b系速度，需要使用w系
         # 初始位置姿态速度信息
         traj_target_oris_from_imu = np.concatenate((position_data[:1, :], orientation_data[:1, :], velocity_data[:1, :]), axis=1)
 
@@ -248,26 +219,26 @@ def process_pose_data_row(row):
     对pose_data的每行数据做坐标转换
     """
     # TODO:转换速度是为了得到初始速度，但速度转换可能存在问题
-    t_w1_b = np.array([row[' p_RS_R_x [m]'], row[' p_RS_R_y [m]'], row[' p_RS_R_z [m]']])
-    v_w1_b = np.array([row[' v_RS_R_x [m s^-1]'], row[' v_RS_R_y [m s^-1]'], row[' v_RS_R_z [m s^-1]']])
+    t_w1_b = np.array([row['x'], row['y'], row['z']])
+    v_w1_b = np.array([row['vx'], row['vy'], row['vz']])
     R_w1_b = Rotation.from_quat(
-        np.array([row[' q_RS_x []'], row[' q_RS_y []'], row[' q_RS_z []'],row[' q_RS_w []']])).as_matrix()
+        np.array([row['qx'], row['qy'], row['qz'],row['qw']])).as_matrix()
     
     R_w2_b = R_w2_w1 @ R_w1_b
     t_w2_b = R_w2_w1 @ t_w1_b + t_w2_w1
     v_w2_b = R_w2_w1 @ v_w1_b
     q_w2_b = Rotation.from_matrix(R_w2_b).as_quat()
     
-    row[' p_RS_R_x [m]'] = t_w2_b[0]
-    row[' p_RS_R_y [m]'] = t_w2_b[1]
-    row[' p_RS_R_z [m]'] = t_w2_b[2]
-    row[' v_RS_R_x [m s^-1]'] = v_w2_b[0]
-    row[' v_RS_R_y [m s^-1]'] = v_w2_b[1]
-    row[' v_RS_R_z [m s^-1]'] = v_w2_b[2]
-    row[' q_RS_x []'] = q_w2_b[0]
-    row[' q_RS_y []'] = q_w2_b[1]
-    row[' q_RS_z []'] = q_w2_b[2]
-    row[' q_RS_w []'] = q_w2_b[3]
+    row['x'] = t_w2_b[0]
+    row['y'] = t_w2_b[1]
+    row['z'] = t_w2_b[2]
+    row['vx'] = v_w2_b[0]
+    row['vy'] = v_w2_b[1]
+    row['vz'] = v_w2_b[2]
+    row['qx'] = q_w2_b[0]
+    row['qy'] = q_w2_b[1]
+    row['qz'] = q_w2_b[2]
+    row['qw'] = q_w2_b[3]
 
     return row
 

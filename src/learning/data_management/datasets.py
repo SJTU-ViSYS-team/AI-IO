@@ -47,7 +47,7 @@ class CompiledSequence(ABC):
 
 
 class ModelSequence(CompiledSequence):
-    def __init__(self, bsdir, dtset_fn, seq_fn, **kwargs):
+    def __init__(self, seq_path, **kwargs):
         super().__init__(**kwargs)
         (
             self.ts,
@@ -59,9 +59,8 @@ class ModelSequence(CompiledSequence):
             self.traj_target
         ) = (None, None, None, None, None, None, None)
 
-        data_path = os.path.join(bsdir, dtset_fn, seq_fn)
-        if data_path is not None:
-            self.load(data_path)
+        if seq_path is not None:
+            self.load(seq_path)
 
     def load(self, data_path):
         with h5py.File(os.path.join(data_path, "data.hdf5"), "r") as f:
@@ -82,7 +81,7 @@ class ModelSequence(CompiledSequence):
 
         # TODO: modify network input to euler angle and accel in i(b) frame
         ypr = np.array([pose.fromQuatToEulerAng(targ[3:7]) for targ in traj_target]) / 180.0 * np.pi
-        self.feat = np.concatenate([ypr, accel_calib], axis=1)
+        self.feat = np.concatenate([ypr, accel_calib, gyro_calib], axis=1)
         for i in range(traj_target.shape[0]):
             traj_target[i, 7:10] = pose.xyzwQuatToMat(traj_target[i, 3:7]).T @ traj_target[i,7:10]
         self.traj_target = traj_target
@@ -97,51 +96,12 @@ class ModelSequence(CompiledSequence):
     def get_aux(self):
         return self.ts, self.gyro_raw, self.accel_raw
 
-class ModelBlackbirdDataset(Dataset):
+class ModelEurocDataset(Dataset):
     """
-        Dataset for Blackbird dataset.
+        Dataset for Euroc dataset.
     """
-    def __init__(self) -> None:
-        super().__init__()
-    
-    def __getitem__(self, index):
-        return super().__getitem__(index)
-    
-    def __len__(self) -> int:
-        pass
-
-class ModelFPVDataset(Dataset):
-    """
-        Dataset for FPV dataset.
-    """
-    def __init__(self) -> None:
-        super().__init__()
-    
-    def __getitem__(self, index):
-        return super().__getitem__(index)
-    
-    def __len__(self) -> int:
-        pass
-
-class ModelSimulationDataset(Dataset):
-    """
-        Dataset for Isaac Simulation dataset
-    """
-    def __init__(self) -> None:
-        super().__init__()
-    
-    def __getitem__(self, index):
-        return super().__getitem__(index)
-    
-    def __len__(self) -> int:
-        pass
-
-class ModelDIDODataset(Dataset):
-    """
-        Dataset for Dido dataset.
-    """
-    def __init__(self, root_dir, dataset_fn, data_list, args, data_window_config, **kwargs):
-        super(ModelDIDODataset, self).__init__()
+    def __init__(self, data_list, args, data_window_config, **kwargs):
+        super(ModelEurocDataset, self).__init__()
 
         self.sampling_factor = data_window_config["sampling_factor"]
         self.window_size = int(data_window_config["window_size"])
@@ -169,7 +129,104 @@ class ModelDIDODataset(Dataset):
         self.raw_accel_meas = []
         # self.thrusts = []
         for i in range(len(data_list)):
-            seq = ModelSequence(root_dir, dataset_fn, data_list[i], **kwargs)
+            seq = ModelSequence(data_list[i], **kwargs)
+            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
+            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
+            feat = seq.get_feature()
+            targ = seq.get_target()
+            self.features.append(feat)
+            self.targets.append(targ)
+            N = self.features[i].shape[0]
+            self.index_map += [
+                [i, j]
+                for j in range(
+                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    N,
+                    self.window_shift_size) 
+                ]
+
+            times, raw_gyro_meas, raw_accel_meas = seq.get_aux()
+            self.ts.append(times)
+
+            if self.mode == "test":
+                self.raw_gyro_meas.append(raw_gyro_meas)
+                self.raw_accel_meas.append(raw_accel_meas)
+                
+        if self.shuffle:
+            random.shuffle(self.index_map)
+
+    def __getitem__(self, item):
+        seq_id, frame_id = self.index_map[item][0], self.index_map[item][1]
+
+        idxs = frame_id - self.window_size * self.sampling_factor
+        idxe = frame_id
+        indices = range(idxs, idxe, self.sampling_factor)
+        idxs = indices[0]
+        idxe = indices[-1]
+
+        feat = self.features[seq_id][indices]
+
+       # target velocity ([NOTE] only x, y)
+        targ = self.targets[seq_id][idxe, 7:10]
+
+        # auxiliary variables
+        feat_ts = self.ts[seq_id][indices]
+
+        raw_gyro_meas_i = np.zeros((3,))
+        raw_accel_meas_i = np.zeros((3,))
+
+        if self.mode == "test":
+            raw_gyro_meas_i = self.raw_gyro_meas[seq_id][indices]
+            raw_accel_meas_i = self.raw_accel_meas[seq_id][indices]
+            
+        if self.mode == "train":
+            if self.perturb_orientation:
+                theta_rand = np.random.uniform(-1, 1, feat[:, :3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
+                feat[:, 0:3] += theta_rand
+            if self.perturb_accel:
+                accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
+                feat[:, 3:6] += accel_rand
+            
+        return feat.astype(np.float32).T, targ.astype(np.float32), \
+            feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
+
+    def __len__(self):
+        return len(self.index_map)
+    
+class ModelBlackbirdDataset(Dataset):
+    """
+        Dataset for Blackbird dataset.
+    """
+    def __init__(self, data_list, args, data_window_config, **kwargs):
+        super(ModelBlackbirdDataset, self).__init__()
+
+        self.sampling_factor = data_window_config["sampling_factor"]
+        self.window_size = int(data_window_config["window_size"])
+        self.window_shift_size = data_window_config["window_shift_size"]
+        self.g = np.array([0., 0., 9.81])
+
+        self.mode = kwargs.get("mode", "train")
+        self.perturb_orientation = args.perturb_orientation
+        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
+        self.perturb_accel = args.perturb_accel
+        self.perturb_accel_range = args.perturb_accel_range
+
+        self.shuffle = False
+        if self.mode == "train":
+            self.shuffle = True
+        elif self.mode == "val":
+            self.shuffle = True
+        elif self.mode == "test":
+            self.shuffle = False
+
+        # index_map = [[seq_id, index of the last datapoint in the window], ...]
+        self.index_map = []
+        self.ts, self.features, self.targets = [], [], []
+        self.raw_gyro_meas = []
+        self.raw_accel_meas = []
+        # self.thrusts = []
+        for i in range(len(data_list)):
+            seq = ModelSequence(data_list[i], **kwargs)
             # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
             # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
             feat = seq.get_feature()
@@ -233,3 +290,306 @@ class ModelDIDODataset(Dataset):
     def __len__(self):
         return len(self.index_map)
 
+class ModelFPVDataset(Dataset):
+    """
+        Dataset for FPV dataset.
+    """
+    def __init__(self, data_list, args, data_window_config, **kwargs):
+        super(ModelFPVDataset, self).__init__()
+
+        self.sampling_factor = data_window_config["sampling_factor"]
+        self.window_size = int(data_window_config["window_size"])
+        self.window_shift_size = data_window_config["window_shift_size"]
+        self.g = np.array([0., 0., 9.8082])
+
+        self.mode = kwargs.get("mode", "train")
+        self.perturb_orientation = args.perturb_orientation
+        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
+        self.perturb_accel = args.perturb_accel
+        self.perturb_accel_range = args.perturb_accel_range
+
+        self.shuffle = False
+        if self.mode == "train":
+            self.shuffle = True
+        elif self.mode == "val":
+            self.shuffle = True
+        elif self.mode == "test":
+            self.shuffle = False
+
+        # index_map = [[seq_id, index of the last datapoint in the window], ...]
+        self.index_map = []
+        self.ts, self.features, self.targets = [], [], []
+        self.raw_gyro_meas = []
+        self.raw_accel_meas = []
+        # self.thrusts = []
+        for i in range(len(data_list)):
+            seq = ModelSequence(data_list[i], **kwargs)
+            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
+            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
+            feat = seq.get_feature()
+            targ = seq.get_target()
+            self.features.append(feat)
+            self.targets.append(targ)
+            N = self.features[i].shape[0]
+            self.index_map += [
+                [i, j]
+                for j in range(
+                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    N,
+                    self.window_shift_size) 
+                ]
+
+            times, raw_gyro_meas, raw_accel_meas = seq.get_aux()
+            self.ts.append(times)
+
+            if self.mode == "test":
+                self.raw_gyro_meas.append(raw_gyro_meas)
+                self.raw_accel_meas.append(raw_accel_meas)
+                
+        if self.shuffle:
+            random.shuffle(self.index_map)
+
+    def __getitem__(self, item):
+        seq_id, frame_id = self.index_map[item][0], self.index_map[item][1]
+
+        idxs = frame_id - self.window_size * self.sampling_factor
+        idxe = frame_id
+        indices = range(idxs, idxe, self.sampling_factor)
+        idxs = indices[0]
+        idxe = indices[-1]
+
+        feat = self.features[seq_id][indices]
+
+       # target velocity ([NOTE] only x, y)
+        targ = self.targets[seq_id][idxe, 7:10]
+
+        # auxiliary variables
+        feat_ts = self.ts[seq_id][indices]
+
+        raw_gyro_meas_i = np.zeros((3,))
+        raw_accel_meas_i = np.zeros((3,))
+
+        if self.mode == "test":
+            raw_gyro_meas_i = self.raw_gyro_meas[seq_id][indices]
+            raw_accel_meas_i = self.raw_accel_meas[seq_id][indices]
+            
+        if self.mode == "train":
+            if self.perturb_orientation:
+                theta_rand = np.random.uniform(-1, 1, feat[:, :3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
+                feat[:, 0:3] += theta_rand
+            if self.perturb_accel:
+                accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
+                feat[:, 3:6] += accel_rand
+            
+        return feat.astype(np.float32).T, targ.astype(np.float32), \
+            feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
+
+    def __len__(self):
+        return len(self.index_map)
+
+class ModelSimulationDataset(Dataset):
+    """
+        Dataset for Isaac Simulation dataset
+    """
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def __getitem__(self, index):
+        return super().__getitem__(index)
+    
+    def __len__(self) -> int:
+        pass
+
+class ModelDIDODataset(Dataset):
+    """
+        Dataset for Dido dataset.
+    """
+    def __init__(self, data_list, args, data_window_config, **kwargs):
+        super(ModelDIDODataset, self).__init__()
+
+        self.sampling_factor = data_window_config["sampling_factor"]
+        self.window_size = int(data_window_config["window_size"])
+        self.window_shift_size = data_window_config["window_shift_size"]
+        self.g = np.array([0., 0., 9.8082])
+
+        self.mode = kwargs.get("mode", "train")
+        self.perturb_orientation = args.perturb_orientation
+        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
+        self.perturb_accel = args.perturb_accel
+        self.perturb_accel_range = args.perturb_accel_range
+
+        self.shuffle = False
+        if self.mode == "train":
+            self.shuffle = True
+        elif self.mode == "val":
+            self.shuffle = True
+        elif self.mode == "test":
+            self.shuffle = False
+
+        # index_map = [[seq_id, index of the last datapoint in the window], ...]
+        self.index_map = []
+        self.ts, self.features, self.targets = [], [], []
+        self.raw_gyro_meas = []
+        self.raw_accel_meas = []
+        # self.thrusts = []
+        for i in range(len(data_list)):
+            seq = ModelSequence(data_list[i], **kwargs)
+            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
+            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
+            feat = seq.get_feature()
+            targ = seq.get_target()
+            self.features.append(feat)
+            self.targets.append(targ)
+            N = self.features[i].shape[0]
+            self.index_map += [
+                [i, j]
+                for j in range(
+                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    N,
+                    self.window_shift_size) 
+                ]
+
+            times, raw_gyro_meas, raw_accel_meas = seq.get_aux()
+            self.ts.append(times)
+
+            if self.mode == "test":
+                self.raw_gyro_meas.append(raw_gyro_meas)
+                self.raw_accel_meas.append(raw_accel_meas)
+                
+        if self.shuffle:
+            random.shuffle(self.index_map)
+
+    def __getitem__(self, item):
+        seq_id, frame_id = self.index_map[item][0], self.index_map[item][1]
+
+        idxs = frame_id - self.window_size * self.sampling_factor
+        idxe = frame_id
+        indices = range(idxs, idxe, self.sampling_factor)
+        idxs = indices[0]
+        idxe = indices[-1]
+
+        feat = self.features[seq_id][indices]
+
+       # target velocity ([NOTE] only x, y)
+        targ = self.targets[seq_id][idxe, 7:10]
+
+        # auxiliary variables
+        feat_ts = self.ts[seq_id][indices]
+
+        raw_gyro_meas_i = np.zeros((3,))
+        raw_accel_meas_i = np.zeros((3,))
+
+        if self.mode == "test":
+            raw_gyro_meas_i = self.raw_gyro_meas[seq_id][indices]
+            raw_accel_meas_i = self.raw_accel_meas[seq_id][indices]
+            
+        if self.mode == "train":
+            if self.perturb_orientation:
+                theta_rand = np.random.uniform(-1, 1, feat[:, :3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
+                feat[:, 0:3] += theta_rand
+            if self.perturb_accel:
+                accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
+                feat[:, 3:6] += accel_rand
+            
+        return feat.astype(np.float32).T, targ.astype(np.float32), \
+            feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
+
+    def __len__(self):
+        return len(self.index_map)
+
+class ModelOursDataset(Dataset):
+    """
+        Dataset for ours dataset.
+    """
+    def __init__(self, data_list, args, data_window_config, **kwargs):
+        super(ModelOursDataset, self).__init__()
+
+        self.sampling_factor = data_window_config["sampling_factor"]
+        self.window_size = int(data_window_config["window_size"])
+        self.window_shift_size = data_window_config["window_shift_size"]
+        self.g = np.array([0., 0., 9.7964])
+
+        self.mode = kwargs.get("mode", "train")
+        self.perturb_orientation = args.perturb_orientation
+        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
+        self.perturb_accel = args.perturb_accel
+        self.perturb_accel_range = args.perturb_accel_range
+
+        self.shuffle = False
+        if self.mode == "train":
+            self.shuffle = True
+        elif self.mode == "val":
+            self.shuffle = True
+        elif self.mode == "test":
+            self.shuffle = False
+
+        # index_map = [[seq_id, index of the last datapoint in the window], ...]
+        self.index_map = []
+        self.ts, self.features, self.targets = [], [], []
+        self.raw_gyro_meas = []
+        self.raw_accel_meas = []
+        # self.thrusts = []
+        for i in range(len(data_list)):
+            seq = ModelSequence(data_list[i], **kwargs)
+            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
+            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
+            feat = seq.get_feature()
+            targ = seq.get_target()
+            self.features.append(feat)
+            self.targets.append(targ)
+            N = self.features[i].shape[0]
+            self.index_map += [
+                [i, j]
+                for j in range(
+                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    N,
+                    self.window_shift_size) 
+                ]
+
+            times, raw_gyro_meas, raw_accel_meas = seq.get_aux()
+            self.ts.append(times)
+
+            if self.mode == "test":
+                self.raw_gyro_meas.append(raw_gyro_meas)
+                self.raw_accel_meas.append(raw_accel_meas)
+                
+        if self.shuffle:
+            random.shuffle(self.index_map)
+
+    def __getitem__(self, item):
+        seq_id, frame_id = self.index_map[item][0], self.index_map[item][1]
+
+        idxs = frame_id - self.window_size * self.sampling_factor
+        idxe = frame_id
+        indices = range(idxs, idxe, self.sampling_factor)
+        idxs = indices[0]
+        idxe = indices[-1]
+
+        feat = self.features[seq_id][indices]
+
+       # target velocity ([NOTE] only x, y)
+        targ = self.targets[seq_id][idxe, 7:10]
+
+        # auxiliary variables
+        feat_ts = self.ts[seq_id][indices]
+
+        raw_gyro_meas_i = np.zeros((3,))
+        raw_accel_meas_i = np.zeros((3,))
+
+        if self.mode == "test":
+            raw_gyro_meas_i = self.raw_gyro_meas[seq_id][indices]
+            raw_accel_meas_i = self.raw_accel_meas[seq_id][indices]
+            
+        if self.mode == "train":
+            if self.perturb_orientation:
+                theta_rand = np.random.uniform(-1, 1, feat[:, :3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
+                feat[:, 0:3] += theta_rand
+            if self.perturb_accel:
+                accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
+                feat[:, 3:6] += accel_rand
+            
+        return feat.astype(np.float32).T, targ.astype(np.float32), \
+            feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
+
+    def __len__(self):
+        return len(self.index_map)

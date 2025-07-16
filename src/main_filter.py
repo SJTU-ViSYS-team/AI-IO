@@ -32,6 +32,8 @@ from filter.python.src.utils.argparse_utils import add_bool_arg
 from filter.python.src.utils.logging import logging
 from filter.python.src.utils.profile import profile
 
+from pyhocon import ConfigFactory
+
 warnings.filterwarnings("ignore", category=NumbaPerformanceWarning)
 
 
@@ -42,9 +44,10 @@ if __name__ == "__main__":
     # ----------------------- io params -----------------------
     io_groups = parser.add_argument_group("io")
 
-    io_groups.add_argument("--root_dir", type=str, help="Path to data directory")
+    # io_groups.add_argument("--root_dir", type=str, help="Path to data directory")
+    io_groups.add_argument("--data_config", type=str, help="Path to data config")
     io_groups.add_argument("--dataset", type=str, required=True)
-    io_groups.add_argument("--data_list", type=str, default="test.txt")
+    # io_groups.add_argument("--data_list", type=str, default="test.txt")
     io_groups.add_argument("--checkpoint_fn", type=str, help="path to trained network.", required=True)
     io_groups.add_argument("--model_param_fn", type=str, default='', help="path to .json file")
     io_groups.add_argument("--out_dir", type=str, help="Path to res directory")
@@ -98,15 +101,15 @@ if __name__ == "__main__":
         "--mahalanobis_fail_scale", type=float, default=0.0
     )  # if nonzero then mahalanobis gating test would scale the covariance by this scale if failed
 
-    add_bool_arg(filter_group, "use_const_cov", default=True)
+    add_bool_arg(filter_group, "use_const_cov", default=False)
     filter_group.add_argument(
-        "--const_cov_val_x", type=float, default=0.01
+        "--const_cov_val_x", type=float, default=100000
     )
     filter_group.add_argument(
-        "--const_cov_val_y", type=float, default=0.01
+        "--const_cov_val_y", type=float, default=100000
     )
     filter_group.add_argument(
-        "--const_cov_val_z", type=float, default=0.01
+        "--const_cov_val_z", type=float, default=100000
     )
     filter_group.add_argument("--meascov_scale", type=float, default=1.0)
 
@@ -125,12 +128,20 @@ if __name__ == "__main__":
     logging.info("Program options:")
     logging.info(pprint(vars(args)))
     # run filter
-    with open(os.path.join(args.root_dir, args.dataset, args.data_list)) as f:
-        data_names = [
-            s.strip().split("," or " ")[0]
-            for s in f.readlines()
-            if len(s) > 0 and s[0] != "#"
-        ]
+    conf = ConfigFactory.parse_file(args.data_config)
+    test_config = conf["test"]
+    test_list = []
+    for entry in test_config["data_list"]:
+        root = entry["data_root"]
+        drives = entry["data_drive"]
+        for drive in drives:
+            test_list.append((drive, os.path.join(root, drive, "processed_data", test_config["mode"])))
+    # with open(os.path.join(args.root_dir, args.dataset, args.data_list)) as f:
+    #     data_names = [
+    #         s.strip().split("," or " ")[0]
+    #         for s in f.readlines()
+    #         if len(s) > 0 and s[0] != "#"
+    #     ]
 
     if args.model_param_fn == '':
         model_param_fn = "model_net_parameters.json"
@@ -142,9 +153,9 @@ if __name__ == "__main__":
         args.out_dir, args.dataset, "checkpoints", "model_net", model_param_fn)
 
     with profile(filename="./profile.prof", enabled=args.do_profile):
-        n_data = len(data_names)
+        n_data = len(test_list)
         logging.info("Running on %d sequences" % n_data)
-        for i, name in enumerate(data_names):
+        for i, (name, path) in enumerate(test_list):
             logging.info(f"Processing {i+1} / {n_data} dataset {name}")
             
             seq_out_dir = os.path.join(args.out_dir, args.dataset, name, 'pyfilter')
@@ -157,7 +168,7 @@ if __name__ == "__main__":
                 parameters_file.write(json.dumps(param_dict, indent=4, sort_keys=True))
 
             try:
-                filterManager = FilterManager(args, name, seq_out_dir)
+                filterManager = FilterManager(args, path, seq_out_dir)
                 filterManager.run(args)
             except FileExistsError as e:
                 print(e)

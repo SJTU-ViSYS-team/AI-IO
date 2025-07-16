@@ -171,3 +171,14 @@ def xyzwQuatFromMat(R):
         np.array([q_wxyz[1], q_wxyz[2], q_wxyz[3], q_wxyz[0]])
     return q_xyzw
 
+def fromRotMatToEulerAng(R):
+    # 计算俯仰角 theta
+    theta = np.arcsin(-R[2, 0])
+    
+    # 计算滚转角 phi
+    phi = np.arctan2(R[2, 1], R[2, 2])
+    
+    # 计算偏航角 psi
+    psi = np.arctan2(R[1, 0], R[0, 0])
+    
+    return np.array([psi, theta, phi])

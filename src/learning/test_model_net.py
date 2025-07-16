@@ -25,6 +25,8 @@ from learning.network.model_factory import get_model
 from learning.utils.argparse_utils import arg_conversion
 from learning.utils.logging import logging
 
+from pyhocon import ConfigFactory
+
 
 def makeErrorPlot(dp_errors, dp_cov):
     fig1 = plt.figure("Errors")
@@ -147,17 +149,28 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
     return attr_dict
 
 
-def get_datalist(list_path):
-    with open(list_path) as f:
-        data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
+def get_datalist(config):
+    data_list = []
+    for entry in config["data_list"]:
+        root = entry["data_root"]
+        drives = entry["data_drive"]
+        for drive in drives:
+            data_list.append((drive, os.path.join(root, drive, "processed_data", config["mode"])))
+    # with open(list_path) as f:
+    #     data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
     return data_list
 
 def test(args):
     try:
-        if args.root_dir is None:
-            raise ValueError("root_dir must be specified.")
-        if args.test_list is None:
-            raise ValueError("test_list must be specified.")
+        if args.data_config is None:
+            raise ValueError("data_config must be specified.")
+        # 读取 config 文件（你可以用一个新的参数 --data_config 指定路径）
+        conf = ConfigFactory.parse_file(args.data_config)
+
+        # if args.root_dir is None:
+        #     raise ValueError("root_dir must be specified.")
+        # if args.test_list is None:
+        #     raise ValueError("test_list must be specified.")
         if args.dataset is None:
             raise ValueError("dataset must be specified.")
         if args.out_dir is not None:
@@ -171,7 +184,10 @@ def test(args):
         logging.error(e)
         return
 
-    test_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.test_list))
+    # 提取 test 配置
+    test_config = conf["test"]
+    test_list = get_datalist(test_config)
+    # test_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.test_list))
     device = torch.device(
         "cuda:0" if torch.cuda.is_available() and not args.cpu else "cpu"
     )
@@ -194,7 +210,7 @@ def test(args):
         "in_dim": (
             100
         )}
-        debias_net = get_debias_model("resnet", debias_net_config, 3, 3).to(device)
+        debias_net = get_debias_model("tcn", debias_net_config, 3, 3).to(device)
         debias_net.load_state_dict(debias_checkpoint["model_state_dict"])
         debias_net.eval()
         logging.info(f"Model {args.debias_model_path} loaded to device {device}.")
@@ -202,8 +218,8 @@ def test(args):
         debias_net = None
 
     # process sequences
-    for data in test_list:
-        logging.info(f"Processing {data}...")
+    for seq_name, data in test_list:
+        logging.info(f"Processing {seq_name}...")
         try:
             seq_dataset = construct_dataset(args, [data], data_window_config, mode="test")
             seq_loader = DataLoader(seq_dataset, batch_size=128, shuffle=False)
@@ -235,7 +251,7 @@ def test(args):
         dp_cov_learned_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), dp_cov_learned), axis=1)
 
 
-        outdir = os.path.join(args.out_dir, args.dataset, data)
+        outdir = os.path.join(args.out_dir, args.dataset, seq_name)
         if os.path.exists(outdir) is False:
             os.makedirs(outdir)
         outfile = os.path.join(outdir, "model_net_learnt_predictions.txt")
@@ -249,45 +265,141 @@ def test(args):
 
         # plotting
         if args.show_plots:
+            plot_dir = os.path.join(outdir, "plots")
+            os.makedirs(plot_dir, exist_ok=True)  # 确保目录存在
+
             # compute errors
             dp_targets = net_attr_dict["targets"]
             dp_errs = dp_learned - dp_targets
 
+            # --- Velocity Plot ---
             plt.figure('Velocity')
             plt.subplot(3, 1, 1)
-            plt.plot(dp_learned[:, 0], label="Learned x")
-            plt.plot(dp_targets[:, 0], label="Real x", alpha=0.7)
-            plt.legend()
-            plt.subplot(3, 1, 2)
-            plt.plot(dp_learned[:, 1], label="Learned y")
-            plt.plot(dp_targets[:, 1], label="Real y", alpha=0.7)
-            plt.legend()
-            plt.subplot(3, 1, 3)
-            plt.plot(dp_learned[:, 2], label="Learned z")
-            plt.plot(dp_targets[:, 2], label="Real z", alpha=0.7)
+            plt.title("Velocity")
+            plt.plot(dp_learned[:, 0], label="Learned")
+            plt.plot(dp_targets[:, 0], label="Real")
+            plt.xlabel("epoch")
+            plt.ylabel('x(m/s)')
             plt.legend()
 
+            plt.subplot(3, 1, 2)
+            plt.plot(dp_learned[:, 1], label="Learned")
+            plt.plot(dp_targets[:, 1], label="Real")
+            plt.xlabel("epoch")
+            plt.ylabel('y(m/s)')
+            plt.legend()
+
+            plt.subplot(3, 1, 3)
+            plt.plot(dp_learned[:, 2], label="Learned")
+            plt.plot(dp_targets[:, 2], label="Real")
+            plt.xlabel("epoch")
+            plt.ylabel('z(m/s)')
+            plt.legend()
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(plot_dir, "velocity.svg"), bbox_inches='tight')
+            plt.savefig(os.path.join(plot_dir, "velocity.png"))
+            plt.close()
+
+            # --- Errors Plot ---
             plt.figure('Errors')
             plt.subplot(3, 1, 1)
-            plt.plot(dp_errs[:, 0], label="x")
-            plt.legend()
-            plt.subplot(3, 1, 2)
-            plt.plot(dp_errs[:, 1], label="y")
-            plt.legend()
-            plt.subplot(3, 1, 3)
-            plt.plot(dp_errs[:, 2], label="z")
-            plt.legend()
+            plt.title("Errors")
+            plt.plot(dp_errs[:, 0])
+            plt.xlabel("epoch")
+            plt.ylabel('x(m/s)')
 
+            plt.subplot(3, 1, 2)
+            plt.plot(dp_errs[:, 1])
+            plt.xlabel("epoch")
+            plt.ylabel('y(m/s)')
+
+            plt.subplot(3, 1, 3)
+            plt.plot(dp_errs[:, 2])
+            plt.xlabel("epoch")
+            plt.ylabel('z(m/s)')
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(plot_dir, "velocity_errors.svg"), bbox_inches='tight')
+            plt.savefig(os.path.join(plot_dir, "velocity_errors.png"))
+            plt.close()
+
+            # --- Std Deviation Plot ---
             plt.figure('Std')
             plt.subplot(3, 1, 1)
-            plt.plot(dp_cov_learned[:, 0], label="x")
-            plt.legend()
+            plt.title("Std Deviation")
+            plt.plot(dp_cov_learned[:, 0])
+            plt.xlabel("epoch")
+            plt.ylabel('x(m/s)')
+
             plt.subplot(3, 1, 2)
-            plt.plot(dp_cov_learned[:, 1], label="y")
-            plt.legend()
+            plt.plot(dp_cov_learned[:, 1])
+            plt.xlabel("epoch")
+            plt.ylabel('y(m/s)')
+
             plt.subplot(3, 1, 3)
-            plt.plot(dp_cov_learned[:, 2], label="z")
-            plt.legend()
+            plt.plot(dp_cov_learned[:, 2])
+            plt.xlabel("epoch")
+            plt.ylabel('z(m/s)')
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(plot_dir, "velocity_std.svg"), bbox_inches='tight')
+            plt.savefig(os.path.join(plot_dir, "velocity_std.png"))
+            plt.close()
+            # # compute errors
+            # dp_targets = net_attr_dict["targets"]
+            # dp_errs = dp_learned - dp_targets
+
+            # plt.figure('Velocity')
+            # plt.subplot(3, 1, 1)
+            # plt.title("Velocity")
+            # plt.plot(dp_learned[:, 0], label="Learned")
+            # plt.plot(dp_targets[:, 0], label="Real")
+            # plt.xlabel("epoch")
+            # plt.ylabel('x(m/s)')
+            # plt.legend()
+            # plt.subplot(3, 1, 2)
+            # plt.plot(dp_learned[:, 1], label="Learned")
+            # plt.plot(dp_targets[:, 1], label="Real")
+            # plt.xlabel("epoch")
+            # plt.ylabel('y(m/s)')
+            # plt.legend()
+            # plt.subplot(3, 1, 3)
+            # plt.plot(dp_learned[:, 2], label="Learned")
+            # plt.plot(dp_targets[:, 2], label="Real")
+            # plt.xlabel("epoch")
+            # plt.ylabel('z(m/s)')
+            # plt.legend()
+
+            # plt.figure('Errors')
+            # plt.subplot(3, 1, 1)
+            # plt.title("Errors")
+            # plt.plot(dp_errs[:, 0])
+            # plt.xlabel("epoch")
+            # plt.ylabel('x(m/s)')
+            # plt.subplot(3, 1, 2)
+            # plt.plot(dp_errs[:, 1])
+            # plt.xlabel("epoch")
+            # plt.ylabel('y(m/s)')
+            # plt.subplot(3, 1, 3)
+            # plt.plot(dp_errs[:, 2])
+            # plt.xlabel("epoch")
+            # plt.ylabel('z(m/s)')
+
+            # plt.figure('Std')
+            # plt.subplot(3, 1, 1)
+            # plt.title("Std")
+            # plt.plot(dp_cov_learned[:, 0])
+            # plt.xlabel("epoch")
+            # plt.ylabel('x(m/s)')
+            # plt.subplot(3, 1, 2)
+            # plt.plot(dp_cov_learned[:, 1])
+            # plt.xlabel("epoch")
+            # plt.ylabel('y(m/s)')
+            # plt.subplot(3, 1, 3)
+            # plt.plot(dp_cov_learned[:, 2])
+            # plt.xlabel("epoch")
+            # plt.ylabel('z(m/s)')
 
             # fig1 = plt.figure("Errors")
             # gs = gridspec.GridSpec(3, 1)
@@ -341,7 +453,7 @@ def test(args):
 
             # makeErrorPlot(dp_errs, dp_cov_learned)
 
-            print("-- dp Errors --")
+            print("-- Vel Errors --")
             print('x')
             print('mean = %.5f' % np.mean(dp_errs[:,0]))
             print('std = %.5f' % np.std(dp_errs[:,0]))
@@ -356,19 +468,39 @@ def test(args):
                 plt.show()
     return
 
-def construct_dataset(args, data_list, data_window_config, mode="train"):
-    if args.dataset == "DIDO":
-        train_dataset = ModelDIDODataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+def construct_dataset(args, data_list, data_window_config, mode="test"):
+    if args.dataset == "Euroc":
+        train_dataset = ModelEurocDataset(data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "DIDO":
+        train_dataset = ModelDIDODataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "Blackbird":
-        train_dataset = ModelBlackbirdDataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+        train_dataset = ModelBlackbirdDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "FPV":
-        train_dataset = ModelFPVDataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+        train_dataset = ModelFPVDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "Simulation":
-        train_dataset = ModelSimulationDataset(
-            args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+        train_dataset = ModelSimulationDataset(data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "ours":
+        train_dataset = ModelOursDataset(data_list, args, data_window_config, mode=mode)
     else:
         raise ValueError(f"Unknown dataset {args.dataset}")
     return train_dataset
+
+# def construct_dataset(args, data_list, data_window_config, mode="train"):
+#     if args.dataset == "DIDO":
+#         train_dataset = ModelDIDODataset(
+#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+#     elif args.dataset == "Blackbird":
+#         train_dataset = ModelBlackbirdDataset(
+#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+#     elif args.dataset == "FPV":
+#         train_dataset = ModelFPVDataset(
+#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+#     elif args.dataset == "Simulation":
+#         train_dataset = ModelSimulationDataset(
+#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+#     elif args.dataset == "ours":
+#         train_dataset = ModelOursDataset(
+#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
+#     else:
+#         raise ValueError(f"Unknown dataset {args.dataset}")
+#     return train_dataset

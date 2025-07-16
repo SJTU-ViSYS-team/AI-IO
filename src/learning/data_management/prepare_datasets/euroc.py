@@ -7,9 +7,10 @@ from scipy.interpolate import interp1d
 from scipy.spatial.transform import Slerp, Rotation
 
 import utils
+from pyhocon import ConfigFactory
 
 '''
-    python src/learning/data_management/prepare_datasets/euroc.py --dataset_dir datasets/Euroc/ --data_list data_list.txt
+    python src/learning/data_management/prepare_datasets/euroc.py --config config/Euroc.conf
 '''
 # # the provided ground truth is the drone body in the NED vicon frame
 # # rotate to have z upwards, NED to NWU
@@ -26,82 +27,51 @@ import utils
 #     [0., 0., 1.]])
 # t_b_i = np.array([0., 0., 0.])
 
-# body, imu, world 坐标系一致
-# world: UEN to NWU
+# body coordinate is the same as imu
+# R_b_i = np.array([
+#     [0., 0., 1.],
+#     [0., -1., 0.],
+#     [1., 0., 0.]
+# ])
+# t_b_i = np.array([0., 0., 0.])
+
+# w1 to w2: UEN to NWU
 R_w2_w1 = np.array([
-    [0., 0., 1.],
-    [0., -1., 0.],
-    [1., 0., 0.]
+    [1., 0., 0.],
+    [0., 1., 0.],
+    [0., 0., 1.]
 ])
 t_w2_w1 = np.array([0., 0., 0.])
 
-# 示例的时间范围配置（自定义）
-# train_times = {
-#     'mav0': [1403636900.0, 1403637000.0],
-#     'sequence2': [20.0, 30.0]
-# }
-# val_times = {
-#     'mav0': [1403636880.0, 1403636900.0],
-#     'sequence2': [30.0, 35.0]
-# }
-# test_times = {
-#     'mav0': [1403636860.0, 1403636880.0],
-#     'sequence2': [35.0, 40.0]
-# }
-train_times = {
-    'mav0': [1403636860.0, 1403636960.0],
-    'sequence2': [20.0, 30.0]
-}
-val_times = {
-    'mav0': [1403636960.0, 1403636980.0],
-    'sequence2': [30.0, 35.0]
-}
-test_times = {
-    'mav0': [1403636980.0, 1403637000.0],
-    'sequence2': [35.0, 40.0]
-}
 dt = 0.005
 
-def prepare_dataset(args):
-    """
-    处理数据集，生成 HDF5 数据集并根据时间范围划分训练/验证/测试集。
-    """
-    dataset_dir = args.dataset_dir
+def process_sequence(dataset_dir, seq_name, mode, save_txt):
+    seq_dir = os.path.join(dataset_dir, seq_name)
+    imu_csv = os.path.join(seq_dir, "imu0/data.csv")
+    pose_csv = os.path.join(seq_dir, "state_groundtruth_estimate0/data.csv")
 
-    # 获取数据序列文件路径
-    with open(os.path.join(dataset_dir, args.data_list), 'r') as f:
-        seq_names = [line.strip() for line in f.readlines()]
+    assert os.path.isfile(imu_csv), f"IMU 数据文件缺失：{imu_csv}"
+    assert os.path.isfile(pose_csv), f"位姿数据文件缺失：{pose_csv}"
 
-    # 遍历所有序列
-    for seq_name in seq_names:
-        seq_dir = os.path.join(dataset_dir, seq_name)
-        imu_csv = os.path.join(seq_dir, "imu_data.csv")
-        pose_csv = os.path.join(seq_dir, "pose_data.csv")
+    # 读取 imu 时间范围
+    imu_data = pd.read_csv(imu_csv)
+    imu_times = imu_data['#timestamp [ns]'].values / 1e9
+    start_time, end_time = imu_times[0], imu_times[-1]
+    times_config = {
+        mode: [start_time, end_time]
+    }
 
-        # 确保文件存在
-        assert os.path.isfile(imu_csv), f"IMU 数据文件缺失：{imu_csv}"
-        assert os.path.isfile(pose_csv), f"位姿数据文件缺失：{pose_csv}"
+    output_dir = os.path.join(seq_dir, "processed_data")
 
-        # 根据配置中的时间范围生成训练、验证、测试集
-        times_config = {
-            "train": train_times.get(seq_name),  # 示例默认时间
-            "val": val_times.get(seq_name),
-            "test": test_times.get(seq_name)
-        }
-
-        # 输出目录
-        output_dir = os.path.join(seq_dir, "processed_data")
-
-        # 调用数据处理函数
-        process_and_save_to_hdf5(
-            imu_csv=imu_csv,
-            pose_csv=pose_csv,
-            output_dir=output_dir,
-            sequence_name=seq_name,
-            times_config=times_config,
-            save_txt=args.save_txt
-        )
-
+    # 调用数据处理函数
+    process_and_save_to_hdf5(
+        imu_csv=imu_csv,
+        pose_csv=pose_csv,
+        output_dir=output_dir,
+        sequence_name=seq_name,
+        times_config=times_config,
+        save_txt=save_txt
+    )
 
 def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times_config, save_txt=False):
     """
@@ -136,19 +106,15 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
     slerp = Slerp(pose_times, rotations)
 
     for split, time_range in times_config.items():
-        # 过滤时间范围内的数据
         start_time, end_time = time_range
-        imu_mask = (imu_times >= start_time) & (imu_times <= end_time)
-        imu_times_part = imu_times[imu_mask]
-        # pose_mask = (pose_times >= start_time) & (pose_times <= end_time)
+        # 限制插值时间范围在 pose 可插值范围内
+        valid_start_time = max(start_time, pose_times[0])
+        valid_end_time = min(end_time, pose_times[-1])
 
-        # imu_data_part = imu_data[imu_mask]
-        # pose_data_part = pose_data[pose_mask]
-        # imu_times_part = imu_data_part['#timestamp [ns]'].values
-        # pose_times_part = pose_data_part['#timestamp'].values
-
-        # 生成严格的时间序列
-        strict_times = np.arange(imu_times_part[0], imu_times_part[-1], dt)  # 0.005s 间隔
+        # 创建严格时间序列
+        # 安全构造 strict_times，不超过 valid_end_time
+        num_steps = int(np.floor((valid_end_time - valid_start_time) / dt))
+        strict_times = valid_start_time + dt * np.arange(num_steps)
 
         # 获取插值数据
         gyro_data = interp_gyro(strict_times)
@@ -196,7 +162,7 @@ def process_and_save_to_hdf5(imu_csv, pose_csv, output_dir, sequence_name, times
             txt_path = os.path.join(output_dir_split, "stamped_groundtruth_imu.txt")
             np.savetxt(
                 txt_path, np.concatenate((combined_data[:, :1], combined_data[:, 7:14]), axis=1), fmt="%.6f",
-                header="# ts x y z qx qy qz qw"
+                header="ts x y z qx qy qz qw"
             )
             print(f"数据保存到 {txt_path}")
 
@@ -212,15 +178,15 @@ def process_pose_data_row(row):
     
     R_w2_b = R_w2_w1 @ R_w1_b
     t_w2_b = R_w2_w1 @ t_w1_b + t_w2_w1
-    v_b_b = R_w1_b.T @ v_w1_b
+    v_w2_b = R_w2_w1 @ v_w1_b
     q_w2_b = Rotation.from_matrix(R_w2_b).as_quat()
     
     row[' p_RS_R_x [m]'] = t_w2_b[0]
     row[' p_RS_R_y [m]'] = t_w2_b[1]
     row[' p_RS_R_z [m]'] = t_w2_b[2]
-    row[' v_RS_R_x [m s^-1]'] = v_b_b[0]
-    row[' v_RS_R_y [m s^-1]'] = v_b_b[1]
-    row[' v_RS_R_z [m s^-1]'] = v_b_b[2]
+    row[' v_RS_R_x [m s^-1]'] = v_w2_b[0]
+    row[' v_RS_R_y [m s^-1]'] = v_w2_b[1]
+    row[' v_RS_R_z [m s^-1]'] = v_w2_b[2]
     row[' q_RS_x []'] = q_w2_b[0]
     row[' q_RS_y []'] = q_w2_b[1]
     row[' q_RS_z []'] = q_w2_b[2]
@@ -229,12 +195,27 @@ def process_pose_data_row(row):
     return row
 
 if __name__ == "__main__":
-    # 设置命令行参数
     parser = argparse.ArgumentParser(description="处理数据集并生成 HDF5 数据")
-    parser.add_argument("--dataset_dir", type=str, required=True, help="数据集的主目录")
-    parser.add_argument("--data_list", type=str, required=True, help="数据列表文件，包含序列名称")
+    parser.add_argument("--config", type=str, required=True, help="配置文件路径（YAML）")
     parser.add_argument("--save_txt", action="store_true", help="是否保存为文本文件", default=True)
     args = parser.parse_args()
 
-    # 运行数据集准备函数
-    prepare_dataset(args)
+    config = ConfigFactory.parse_file(args.config)
+
+    for split in ['train', 'val', 'test']:
+        split_config = config.get(split, {})
+        if not split_config:
+            continue
+
+        mode = split_config.get("mode", split)
+        for dataset in split_config["data_list"]:
+            dataset_dir = dataset["data_root"]
+            for seq_name in dataset["data_drive"]:
+                print(f"处理 {mode.upper()} 数据集: {seq_name}")
+                process_sequence(
+                    dataset_dir=dataset_dir,
+                    seq_name=seq_name,
+                    mode=mode,
+                    save_txt=args.save_txt
+                )
+
