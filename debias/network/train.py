@@ -123,23 +123,23 @@ def get_inference(network, data_loader, device, epoch,args):
     network.eval()
 
     for bid, (feat, targ,ts_inter,ori_r,_, _) in enumerate(data_loader):
-        if args.arch == "resnet":
-            feat, targ = feat.to(device), targ.to(device)
-            ts_inter = ts_inter.unsqueeze(1)
-            ori_r = ori_r.to(device)
+        # if args.arch == "resnet":
+        feat, targ = feat.to(device), targ.to(device)
+        ts_inter = ts_inter.unsqueeze(1)
+        ori_r = ori_r.to(device)
 
-            pred = network(feat[:, 3:6, :].to(device))
+        pred = network(feat[:, 3:6, :].to(device))
 
-            a_body =  (feat[:, 3:6,:].to(device) + pred.unsqueeze(2).repeat(1,1, feat[:, 3:6,:].shape[2])).permute(0,2,1)
-            a_world = torch.einsum("atip,atp->ati", ori_r, a_body).permute(0,2,1)
+        a_body =  (feat[:, 3:6,:].to(device) + pred.unsqueeze(2).repeat(1,1, feat[:, 3:6,:].shape[2])).permute(0,2,1)
+        a_world = torch.einsum("atip,atp->ati", ori_r, a_body).permute(0,2,1)
 
-            a_body_raw = feat[:, 3:6,:].to(device).permute(0,2,1)
-            a_world_raw = torch.einsum("atip,atp->ati", ori_r, a_body_raw).permute(0,2,1)
+        a_body_raw = feat[:, 3:6,:].to(device).permute(0,2,1)
+        a_world_raw = torch.einsum("atip,atp->ati", ori_r, a_body_raw).permute(0,2,1)
 
-            pred = integration_v(ts_inter, a_world, device, args,r=None,k=1).to(device)
-            pred_raw = integration_v(ts_inter, a_world_raw, device, args,r=None,k=1).to(device)
+        pred = integration_v(ts_inter, a_world, device, args,r=None,k=1).to(device)
+        pred_raw = integration_v(ts_inter, a_world_raw, device, args,r=None,k=1).to(device)
 
-            loss = get_loss(pred, _, targ , epoch).to(device)
+        loss = get_loss(pred, _, targ , epoch).to(device)
 
         targets_all.append(torch_to_numpy(targ))
         preds_all.append(torch_to_numpy(pred))
@@ -174,10 +174,10 @@ def do_train(network, train_loader, device, epoch, optimizer,args):
             ts_inter = ts_inter.unsqueeze(1)
             ori_r = ori_r.to(device)
 
-            pred = network(feat[:, 3:6, :].to(device))
+        pred = network(feat[:, 3:6, :].to(device))
 
-            a_body =  (feat[:, 3:6,:].to(device) + pred.unsqueeze(2).repeat(1,1, feat[:, 3:6,:].shape[2])).permute(0,2,1)
-            a_world = torch.einsum("atip,atp->ati", ori_r, a_body).permute(0,2,1)
+        a_body =  (feat[:, 3:6,:].to(device) + pred.unsqueeze(2).repeat(1,1, feat[:, 3:6,:].shape[2])).permute(0,2,1)
+        a_world = torch.einsum("atip,atp->ati", ori_r, a_body).permute(0,2,1)
 
             pred = integration_v(ts_inter, a_world, device, args, r=None, k=1).to(device)
 

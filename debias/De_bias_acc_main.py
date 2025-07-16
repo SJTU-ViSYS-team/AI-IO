@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-04)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=10000, help="max num epochs")
-    parser.add_argument("--arch", type=str, default="resnet")
+    parser.add_argument("--arch", type=str, default="tcn")
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--input_dim", type=int, default=3)
     parser.add_argument("--output_dim", type=int, default=3)

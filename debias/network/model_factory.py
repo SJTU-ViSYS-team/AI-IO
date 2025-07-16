@@ -7,6 +7,15 @@ def get_model(arch, net_config, input_dim=3, output_dim=3):
         network = ResNet1D(
             BasicBlock1D, input_dim, output_dim, [2, 2, 2, 2], net_config["in_dim"]
         )
+    elif arch in ["tcn"]:
+        network = TlioTcn(
+            input_dim,
+            output_dim,
+            [2, 2, 2, 2],
+            kernel_size=2,
+            dropout=0.2,
+            activation="GELU",
+        )
     else:
         raise ValueError("Invalid architecture: ", arch)
     return network

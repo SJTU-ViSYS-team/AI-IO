@@ -149,19 +149,16 @@ class TlioTcn(nn.Module):
             dropout=dropout,
             activation=dict_activation[activation],
         )
-        self.linear1 = nn.Linear(num_channels[-1], output_size)
-        self.linear2 = nn.Linear(num_channels[-1], output_size)
+        self.linear = nn.Linear(num_channels[-1], output_size)
         self.init_weights()
 
     def init_weights(self):
-        self.linear1.weight.data.normal_(0, 0.01)
-        self.linear2.weight.data.normal_(0, 0.01)
+        self.linear.weight.data.normal_(0, 0.01)
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
         x = self.tcn(x)
-        x1 = self.linear1(x[:, :, -1])
-        x2 = self.linear2(x[:, :, -1])
-        return x1, x2
+        x = self.linear(x[:, :, -1])
+        return x

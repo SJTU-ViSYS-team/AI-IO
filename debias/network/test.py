@@ -113,12 +113,13 @@ def compute_metrics_and_plotting(args, net_attr_dict, traj_attr_dict, traj_raw_a
 
     return metrics, plot_dict
 
-def plot_3d(x, y1, y2, xlb, ylbs, lgs, num=None, dpi=None, figsize=None):
+def plot_3d(x, y1, y2, y3, xlb, ylbs, lgs, num=None, dpi=None, figsize=None):
     fig = plt.figure(num=num, dpi=dpi, figsize=figsize)
     for i in range(3):
         plt.subplot(3, 1, i + 1)
         plt.plot(x, y1[:, i], label=lgs[0])
         plt.plot(x, y2[:, i], label=lgs[1])
+        plt.plot(x, y3[:, i], label=lgs[2])
         plt.ylabel(ylbs[i])
         plt.legend()
         plt.grid(True)
@@ -200,10 +201,11 @@ def make_plots(args, plot_dict, outdir):
     fig2 = plot_3d(
         ts,
         vel_pred,
+        vel_pred_raw,
         vel_gt,
         xlb="t(s)",
         ylbs=["x(m/s)", "y(m/s)", "z(m/s)"],
-        lgs=["our", "Ground Truth"],
+        lgs=["our", "Raw integration", "Ground Truth"],
         num="Velocity",
         dpi=dpi,
         figsize=figsize,
@@ -358,9 +360,9 @@ def net_test(args):
         net_attr_dict = get_inference(network, seq_loader, device, epoch=50,args=args)
         traj_attr_dict = vel_integrate(args, seq_dataset, net_attr_dict["preds"])
         traj_raw_attr_dict = vel_integrate(args, seq_dataset, net_attr_dict["preds_raw"])
-        outdir = osp.join(args.out_dir, data)
+        outdir = osp.join(args.out_dir, args.dataset, data)
         if osp.exists(outdir) is False:
-            os.mkdir(outdir)
+            os.makedirs(outdir, exist_ok=True)
         outfile = osp.join(outdir, "trajectory.txt")
         trajectory_data = np.concatenate(
             [
