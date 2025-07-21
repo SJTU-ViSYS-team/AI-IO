@@ -158,6 +158,7 @@ class Tcn(nn.Module):
             dropout=dropout,
             activation=dict_activation[activation],
         )
+        # self.gru = nn.GRU(input_size = 128, hidden_size =64, num_layers = 1, batch_first = True,bidirectional=True)
         self.linear1 = nn.Linear(num_channels[-1], output_size)
         self.linear2 = nn.Linear(num_channels[-1], output_size)
         self.init_weights()
@@ -171,6 +172,9 @@ class Tcn(nn.Module):
 
     def forward(self, x):
         x = self.tcn(x)
+        # x = x.permute(0, 2, 1)
+        # x, _ = self.gru(x)
+        # x = x.permute(0, 2, 1)
         pred = self.linear1(x[:, :, -1])
         pred_cov = self.linear2(x[:, :, -1])
         return pred, pred_cov

@@ -12,13 +12,14 @@
             "console": "integratedTerminal",
             "args": [
                 // "--root_dir=datasets",
-                "--data_config=config/FPV.conf",
+                "--data_config=config/our2.conf",
                 "--out_dir=results",
-                "--dataset=FPV",
+                "--dataset=our2",
                 "--mode=train",
-                "--imu_freq=500",
-                "--sampling_freq=500",
-                "--window_time=1"
+                "--imu_freq=100",
+                "--sampling_freq=100",
+                "--window_time=0.5",
+                // "--continue_from=results/our2/checkpoints/model_net/checkpoint_90.pt"
             ]
         },
         {
@@ -29,13 +30,13 @@
             "console": "integratedTerminal",
             "args": [
                 // "--root_dir=datasets",
-                "--data_config=config/FPV.conf",
+                "--data_config=config/our2.conf",
                 "--out_dir=results",
-                "--dataset=FPV",
+                "--dataset=our2",
                 "--mode=test",
-                "--imu_freq=500",
-                "--sampling_freq=500",
-                "--window_time=0.5",
+                "--imu_freq=100",
+                "--sampling_freq=100",
+                "--window_time=1",
                 "--model_fn=checkpoint_20.pt",
                 "--show_plots"
             ]
@@ -48,11 +49,11 @@
             "console": "integratedTerminal",
             "args": [
                 // "--root_dir=datasets",
-                "--data_config=config/FPV.conf",
+                "--data_config=config/our2.conf",
                 "--out_dir=results",
-                "--dataset=FPV",
+                "--dataset=our2",
                 // "--data_list=test.txt",
-                "--checkpoint_fn=checkpoint_20.pt", //
+                "--checkpoint_fn=checkpoint_23.pt", //
                 "--model_param_fn=model_net_parameters.json"
             ]
         },
@@ -64,9 +65,9 @@
             "console": "integratedTerminal",
             "args": [
                 // "--dataset_dir=datasets",
-                "--data_config=config/FPV.conf",
+                "--data_config=config/our2.conf",
                 "--result_dir=results",
-                "--dataset=FPV"
+                "--dataset=our2"
                 // "--seq=random/speed5/processed_data/test"
             ]
         },
@@ -117,8 +118,7 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-                "--dataset_dir=datasets/Simulation/",
-                "--data_list=data_list.txt"
+                "--config=config/our2.conf"
             ]
         }
     ]

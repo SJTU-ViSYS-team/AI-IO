@@ -34,9 +34,9 @@ if __name__ == "__main__":
     parser.add_argument("--continue_from", type=str, default=None)
 
     # ------------------ architecture and learning params -----------------
-    parser.add_argument("--lr", type=float, default=3e-04)
+    parser.add_argument("--lr", type=float, default=1e-04)
     parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=30, help="max num epochs")
+    parser.add_argument("--epochs", type=int, default=50, help="max num epochs")
     parser.add_argument("--save_interval", type=int, default=10, help="save model every n epochs")
     parser.add_argument("--cpu", action="store_true")
     parser.add_argument("--input_dim", type=int, default=9)
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("--loss_type", type=str, default="huber", help="huber,mse")
     parser.add_argument("--huber_vel_loss_delta", type=float, default=0.1, help="value is in [m/s]")
     parser.add_argument("--huber_pos_loss_delta", type=float, default=0.5, help="value is in [m]")
-    parser.add_argument("--switch_iter", type=int, default=20, help="switch to optimize covariance after this iter")
+    parser.add_argument("--switch_iter", type=int, default=40, help="switch to optimize covariance after this iter")
 
     # ------------------ data perturbation ------------------
     add_bool_arg(parser, "perturb_orientation", default=True)

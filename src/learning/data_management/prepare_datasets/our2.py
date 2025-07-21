@@ -6,12 +6,13 @@ import h5py
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Slerp, Rotation
 
-import rosbag
+from mcap.reader import make_reader
+from mcap_ros2.decoder import Decoder
 import utils
 from pyhocon import ConfigFactory
 
 '''
-    python src/learning/data_management/prepare_datasets/FPV.py --config config/FPV.conf
+    python src/learning/data_management/prepare_datasets/our2.py --config config/our2.conf
 '''
 # NOTE: 坐标系一致，不需要转换
 # the provided ground truth is the drone body in the NWU vicon frame
@@ -37,20 +38,20 @@ from pyhocon import ConfigFactory
 # ])
 # t_w2_w1 = np.array([0., 0., 0.])
 
-# dt = 0.002
+# dt = 0.01
 
 def process_sequence(dataset_dir, seq_name, mode, save_txt):
     # base_seq_name = os.path.dirname(os.path.dirname(seq_name))
     data_dir = os.path.join(dataset_dir, seq_name)
     assert os.path.isdir(data_dir), '%s' % data_dir
 
-    bag_files = [f for f in os.listdir(data_dir) if f.endswith('.bag')]
-    if len(bag_files) == 0:
-        raise FileNotFoundError("No .bag file found in the directory.")
-    elif len(bag_files) > 1:
-        raise RuntimeError(f"Multiple .bag files found: {bag_files}, please specify one.")
+    mcap_files = [f for f in os.listdir(data_dir) if f.endswith('.mcap')]
+    if len(mcap_files) == 0:
+        raise FileNotFoundError("No .mcap file found in the directory.")
+    elif len(mcap_files) > 1:
+        raise RuntimeError(f"Multiple .mcap files found: {mcap_files}, please specify one.")
     else:
-        rosbag_fn = os.path.join(data_dir, bag_files[0])
+        mcap_fn = os.path.join(data_dir, mcap_files[0])
     # rosbag_fn = os.path.join(data_dir, 'rosbag.bag')
 
     # Read data
@@ -58,49 +59,63 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
     pose_gt = []
     dt = 0.01
 
-    imu_topic = '/snappy_imu'
-    pose_topic = '/groundtruth/pose'
+    imu_topic = '/mavros/imu/data'
+    pose_topic = '/odom/global'
 
-    print('Reading data from %s' % rosbag_fn)
-    with rosbag.Bag(rosbag_fn, 'r') as bag:
-        for (topic, msg, ts) in bag.read_messages():
-            if topic == imu_topic:
+    print('Reading data from %s' % mcap_fn)
+    decoder = Decoder()
+    with open(mcap_fn, "rb") as f:
+        reader = make_reader(f)
+        for schema, channel, msg in reader.iter_messages():
+            if channel.topic == imu_topic and channel.message_encoding == "cdr":
+                try:
+                    ros_msg = decoder.decode(schema, msg)
+                except Exception as e:
+                    print(f"[Decode error] {e}")
+                    continue
                 imu_i = np.array([
-                    msg.header.stamp.to_sec(),
-                    msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z,
-                    msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z])
+                    ros_msg.header.stamp.sec + ros_msg.header.stamp.nanosec*1e-9,
+                    ros_msg.angular_velocity.x, ros_msg.angular_velocity.y, ros_msg.angular_velocity.z,
+                    ros_msg.linear_acceleration.x, ros_msg.linear_acceleration.y, ros_msg.linear_acceleration.z])
                 raw_imu.append(imu_i)
-
-            elif topic == pose_topic:
+                
+            elif channel.topic == pose_topic and channel.message_encoding == "cdr":
+                try:
+                    ros_msg = decoder.decode(schema, msg)
+                except Exception as e:
+                    print(f"[Decode error] {e}")
+                    continue
                 pose_i = np.array([
-                    msg.header.stamp.to_sec(),
-                    msg.pose.position.x, msg.pose.position.y, msg.pose.position.z,
-                    msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w
+                    ros_msg.header.stamp.sec + ros_msg.header.stamp.nanosec*1e-9,
+                    ros_msg.pose.pose.position.x, ros_msg.pose.pose.position.y, ros_msg.pose.pose.position.z,
+                    ros_msg.pose.pose.orientation.x, ros_msg.pose.pose.orientation.y, ros_msg.pose.pose.orientation.z, ros_msg.pose.pose.orientation.w,
+                    ros_msg.twist.twist.linear.x, ros_msg.twist.twist.linear.y, ros_msg.twist.twist.linear.z
                 ])
                 pose_gt.append(pose_i)
-    # TODO: 坐标系变换
 
     raw_imu = np.asarray(raw_imu)
     pose_gt = np.asarray(pose_gt)
 
-    # include velocities
-    gt_times = pose_gt[:, 0]
-    gt_pos = pose_gt[:, 1:4]
+    gt_traj_tmp = pose_gt
 
-    # compute velocity
-    v_start = ((gt_pos[1] - gt_pos[0]) / (gt_times[1] - gt_times[0])).reshape((1, 3))
-    gt_vel_raw = (gt_pos[1:] - gt_pos[:-1]) / (gt_times[1:] - gt_times[:-1])[:, None]
-    gt_vel_raw = np.concatenate((v_start, gt_vel_raw), axis=0)
-    # filter
-    gt_vel_x = np.convolve(gt_vel_raw[:, 0], np.ones(5) / 5, mode='same')
-    gt_vel_x = gt_vel_x.reshape((-1, 1))
-    gt_vel_y = np.convolve(gt_vel_raw[:, 1], np.ones(5) / 5, mode='same')
-    gt_vel_y = gt_vel_y.reshape((-1, 1))
-    gt_vel_z = np.convolve(gt_vel_raw[:, 2], np.ones(5) / 5, mode='same')
-    gt_vel_z = gt_vel_z.reshape((-1, 1))
-    gt_vel = np.concatenate((gt_vel_x, gt_vel_y, gt_vel_z), axis=1)
+    # # include velocities
+    # gt_times = pose_gt[:, 0]
+    # gt_pos = pose_gt[:, 1:4]
 
-    gt_traj_tmp = np.concatenate((pose_gt, gt_vel), axis=1)  # [ts x y z qx qy qz qw vx vy vz]
+    # # compute velocity
+    # v_start = ((gt_pos[1] - gt_pos[0]) / (gt_times[1] - gt_times[0])).reshape((1, 3))
+    # gt_vel_raw = (gt_pos[1:] - gt_pos[:-1]) / (gt_times[1:] - gt_times[:-1])[:, None]
+    # gt_vel_raw = np.concatenate((v_start, gt_vel_raw), axis=0)
+    # # filter
+    # gt_vel_x = np.convolve(gt_vel_raw[:, 0], np.ones(5) / 5, mode='same')
+    # gt_vel_x = gt_vel_x.reshape((-1, 1))
+    # gt_vel_y = np.convolve(gt_vel_raw[:, 1], np.ones(5) / 5, mode='same')
+    # gt_vel_y = gt_vel_y.reshape((-1, 1))
+    # gt_vel_z = np.convolve(gt_vel_raw[:, 2], np.ones(5) / 5, mode='same')
+    # gt_vel_z = gt_vel_z.reshape((-1, 1))
+    # gt_vel = np.concatenate((gt_vel_x, gt_vel_y, gt_vel_z), axis=1)
+
+    # gt_traj_tmp = np.concatenate((pose_gt, gt_vel), axis=1)  # [ts x y z qx qy qz qw vx vy vz]
 
     # In FPV dataset, the sensors measurements are at:
     # 500 Hz IMU meas.

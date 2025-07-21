@@ -142,8 +142,8 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
         "errs": errs_all,
         "ts": ts_all,
         "targets": targets_all,
-        "dp_learned": pred_all,
-        "dp_cov_learned": pred_cov_all
+        "pred_all": pred_all,
+        "pred_cov_all": pred_cov_all
         }
 
     return attr_dict
@@ -233,31 +233,31 @@ def test(args):
         # Print loss infos
         print(net_attr_dict["errs"].shape)
         print(net_attr_dict["losses"].shape)
-        errs_pos = np.mean(net_attr_dict["errs"])
+        errs_vel = np.mean(net_attr_dict["errs"])
         loss = np.mean(net_attr_dict["losses"])
         
 
-        logging.info(f"Test: average err [m]: {errs_pos}")
+        logging.info(f"Test: average vel err [m/s]: {errs_vel}")
         logging.info(f"Test: average loss: {loss}")
             
         # save displacement related quantities
         ts = net_attr_dict["ts"]
-        dp_learned = net_attr_dict["dp_learned"] # n*3
-        dp_learned_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), dp_learned), axis=1)
-        dp_cov_learned = net_attr_dict["dp_cov_learned"]
-        dp_cov_learned[dp_cov_learned<-4] = -4
+        pred = net_attr_dict["pred_all"] # n*3
+        pred_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), pred), axis=1)
+        pred_cov = net_attr_dict["pred_cov_all"]
+        pred_cov[pred_cov<-4] = -4
         for i in range(3):
-            dp_cov_learned[:, i] = torch.exp(2 * torch.tensor(dp_cov_learned[:, i], dtype=torch.float32))
-        dp_cov_learned_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), dp_cov_learned), axis=1)
+            pred_cov[:, i] = torch.exp(2 * torch.tensor(pred_cov[:, i], dtype=torch.float32))
+        pred_cov_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), pred_cov), axis=1)
 
 
         outdir = os.path.join(args.out_dir, args.dataset, seq_name)
         if os.path.exists(outdir) is False:
             os.makedirs(outdir)
         outfile = os.path.join(outdir, "model_net_learnt_predictions.txt")
-        np.savetxt(outfile, dp_learned_sampled, fmt="%.12f", header="t0 t1 dpx dpy dpz")
+        np.savetxt(outfile, pred_sampled, fmt="%.12f", header="t0 t1 dpx dpy dpz")
         outfile = os.path.join(outdir, "model_net_learnt_predictions_covariance.txt")
-        np.savetxt(outfile, dp_cov_learned_sampled, fmt="%.5f", header="t0 t1 covx covy covz")
+        np.savetxt(outfile, pred_cov_sampled, fmt="%.5f", header="t0 t1 covx covy covz")
 
         # save loss
         outfile = os.path.join(outdir, "net_losses.txt")
@@ -269,33 +269,20 @@ def test(args):
             os.makedirs(plot_dir, exist_ok=True)  # 确保目录存在
 
             # compute errors
-            dp_targets = net_attr_dict["targets"]
-            dp_errs = dp_learned - dp_targets
+            vel_targets = net_attr_dict["targets"]
+            vel_errs = pred - vel_targets
 
             # --- Velocity Plot ---
-            plt.figure('Velocity')
-            plt.subplot(3, 1, 1)
-            plt.title("Velocity")
-            plt.plot(dp_learned[:, 0], label="Learned")
-            plt.plot(dp_targets[:, 0], label="Real")
-            plt.xlabel("epoch")
-            plt.ylabel('x(m/s)')
-            plt.legend()
-
-            plt.subplot(3, 1, 2)
-            plt.plot(dp_learned[:, 1], label="Learned")
-            plt.plot(dp_targets[:, 1], label="Real")
-            plt.xlabel("epoch")
-            plt.ylabel('y(m/s)')
-            plt.legend()
-
-            plt.subplot(3, 1, 3)
-            plt.plot(dp_learned[:, 2], label="Learned")
-            plt.plot(dp_targets[:, 2], label="Real")
-            plt.xlabel("epoch")
-            plt.ylabel('z(m/s)')
-            plt.legend()
-
+            plt.figure(figsize=(12, 6))
+            for i, axis in enumerate(['x', 'y', 'z']):
+                plt.subplot(3, 1, i+1)
+                plt.plot(vel_targets[:, i], label=f'GT vel {axis}', color='black')
+                plt.plot(pred[:, i], label=f'Net vel {axis}', linestyle='--')
+                plt.ylabel(f'vel_{axis} [m/s]')
+                plt.legend()
+                plt.grid(True)
+            plt.xlabel('Time [s]')
+            plt.suptitle('Velocity Comparison (GT vs Network)')
             plt.tight_layout()
             plt.savefig(os.path.join(plot_dir, "velocity.svg"), bbox_inches='tight')
             plt.savefig(os.path.join(plot_dir, "velocity.png"))
@@ -305,17 +292,17 @@ def test(args):
             plt.figure('Errors')
             plt.subplot(3, 1, 1)
             plt.title("Errors")
-            plt.plot(dp_errs[:, 0])
+            plt.plot(vel_errs[:, 0])
             plt.xlabel("epoch")
             plt.ylabel('x(m/s)')
 
             plt.subplot(3, 1, 2)
-            plt.plot(dp_errs[:, 1])
+            plt.plot(vel_errs[:, 1])
             plt.xlabel("epoch")
             plt.ylabel('y(m/s)')
 
             plt.subplot(3, 1, 3)
-            plt.plot(dp_errs[:, 2])
+            plt.plot(vel_errs[:, 2])
             plt.xlabel("epoch")
             plt.ylabel('z(m/s)')
 
@@ -328,17 +315,17 @@ def test(args):
             plt.figure('Std')
             plt.subplot(3, 1, 1)
             plt.title("Std Deviation")
-            plt.plot(dp_cov_learned[:, 0])
+            plt.plot(pred_cov[:, 0])
             plt.xlabel("epoch")
             plt.ylabel('x(m/s)')
 
             plt.subplot(3, 1, 2)
-            plt.plot(dp_cov_learned[:, 1])
+            plt.plot(pred_cov[:, 1])
             plt.xlabel("epoch")
             plt.ylabel('y(m/s)')
 
             plt.subplot(3, 1, 3)
-            plt.plot(dp_cov_learned[:, 2])
+            plt.plot(pred_cov[:, 2])
             plt.xlabel("epoch")
             plt.ylabel('z(m/s)')
 
@@ -346,123 +333,17 @@ def test(args):
             plt.savefig(os.path.join(plot_dir, "velocity_std.svg"), bbox_inches='tight')
             plt.savefig(os.path.join(plot_dir, "velocity_std.png"))
             plt.close()
-            # # compute errors
-            # dp_targets = net_attr_dict["targets"]
-            # dp_errs = dp_learned - dp_targets
 
-            # plt.figure('Velocity')
-            # plt.subplot(3, 1, 1)
-            # plt.title("Velocity")
-            # plt.plot(dp_learned[:, 0], label="Learned")
-            # plt.plot(dp_targets[:, 0], label="Real")
-            # plt.xlabel("epoch")
-            # plt.ylabel('x(m/s)')
-            # plt.legend()
-            # plt.subplot(3, 1, 2)
-            # plt.plot(dp_learned[:, 1], label="Learned")
-            # plt.plot(dp_targets[:, 1], label="Real")
-            # plt.xlabel("epoch")
-            # plt.ylabel('y(m/s)')
-            # plt.legend()
-            # plt.subplot(3, 1, 3)
-            # plt.plot(dp_learned[:, 2], label="Learned")
-            # plt.plot(dp_targets[:, 2], label="Real")
-            # plt.xlabel("epoch")
-            # plt.ylabel('z(m/s)')
-            # plt.legend()
+            with open(os.path.join(plot_dir, "error.txt"), 'w') as f:
+                f.write("-- Vel Errors --\n")
+                for i, axis in enumerate(['x', 'y', 'z']):
+                    f.write(f'{axis}\n')
+                    f.write('mean = %.5f\n' % np.mean(vel_errs[:, i]))
+                    f.write('std = %.5f\n' % np.std(vel_errs[:, i]))
 
-            # plt.figure('Errors')
-            # plt.subplot(3, 1, 1)
-            # plt.title("Errors")
-            # plt.plot(dp_errs[:, 0])
-            # plt.xlabel("epoch")
-            # plt.ylabel('x(m/s)')
-            # plt.subplot(3, 1, 2)
-            # plt.plot(dp_errs[:, 1])
-            # plt.xlabel("epoch")
-            # plt.ylabel('y(m/s)')
-            # plt.subplot(3, 1, 3)
-            # plt.plot(dp_errs[:, 2])
-            # plt.xlabel("epoch")
-            # plt.ylabel('z(m/s)')
-
-            # plt.figure('Std')
-            # plt.subplot(3, 1, 1)
-            # plt.title("Std")
-            # plt.plot(dp_cov_learned[:, 0])
-            # plt.xlabel("epoch")
-            # plt.ylabel('x(m/s)')
-            # plt.subplot(3, 1, 2)
-            # plt.plot(dp_cov_learned[:, 1])
-            # plt.xlabel("epoch")
-            # plt.ylabel('y(m/s)')
-            # plt.subplot(3, 1, 3)
-            # plt.plot(dp_cov_learned[:, 2])
-            # plt.xlabel("epoch")
-            # plt.ylabel('z(m/s)')
-
-            # fig1 = plt.figure("Errors")
-            # gs = gridspec.GridSpec(3, 1)
-
-            # fig1.add_subplot(gs[0, 0])
-            # plt.plot(dp_errors[:,0], label='x')
-            # plt.grid()
-            # plt.legend()
-            # plt.xlabel('#')
-            # plt.ylabel('$[m]$')
-            # plt.title('Position errors')
-
-            # fig1.add_subplot(gs[1, 0])
-            # plt.plot(dp_errors[:,1], label='y')
-            # plt.grid()
-            # plt.legend()
-            # plt.xlabel('#')
-            # plt.ylabel('$[m]$')
-
-            # fig1.add_subplot(gs[2, 0])
-            # plt.plot(dp_errors[:,2], label='z')
-            # plt.grid()
-            # plt.legend()
-            # plt.xlabel('#')
-            # plt.ylabel('$[m]$')
-
-            # fig2 = plt.figure("Std")
-            # gs = gridspec.GridSpec(3, 1)
-
-            # fig2.add_subplot(gs[0, 0])
-            # plt.plot(np.sqrt(dp_cov[:,0]), label='x')
-            # plt.grid()
-            # plt.legend()
-            # plt.xlabel('#')
-            # plt.ylabel('$[m]$')
-            # plt.title('Position std')
-
-            # fig2.add_subplot(gs[1, 0])
-            # plt.plot(np.sqrt(dp_cov[:,1]), label='y')
-            # plt.grid()
-            # plt.legend()
-            # plt.xlabel('#')
-            # plt.ylabel('$[m]$')
-
-            # fig2.add_subplot(gs[2, 0])
-            # plt.plot(np.sqrt(dp_cov[:,2]), label='z')
-            # plt.grid()
-            # plt.legend()
-            # plt.xlabel('#')
-            # plt.ylabel('$[m]$')
-
-            # makeErrorPlot(dp_errs, dp_cov_learned)
-
-            print("-- Vel Errors --")
-            print('x')
-            print('mean = %.5f' % np.mean(dp_errs[:,0]))
-            print('std = %.5f' % np.std(dp_errs[:,0]))
-            print('y')
-            print('mean = %.5f' % np.mean(dp_errs[:,1]))
-            print('std = %.5f' % np.std(dp_errs[:,1]))
-            print('z')
-            print('mean = %.5f' % np.mean(dp_errs[:,2]))
-            print('std = %.5f' % np.std(dp_errs[:,2]))
+                f.write("-- Summary --\n")
+                f.write(f"average vel err [m/s]: {errs_vel}\n")
+                f.write(f"average loss: {loss}\n")
 
             if args.show_plots:
                 plt.show()
@@ -479,6 +360,8 @@ def construct_dataset(args, data_list, data_window_config, mode="test"):
         train_dataset = ModelFPVDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "Simulation":
         train_dataset = ModelSimulationDataset(data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "our2":
+        train_dataset = ModelOur2Dataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "ours":
         train_dataset = ModelOursDataset(data_list, args, data_window_config, mode=mode)
     else:

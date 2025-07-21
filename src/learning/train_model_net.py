@@ -436,6 +436,8 @@ def construct_dataset(args, data_list, data_window_config, mode="train"):
         train_dataset = ModelFPVDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "Simulation":
         train_dataset = ModelSimulationDataset(data_list, args, data_window_config, mode=mode)
+    elif args.dataset == "our2":
+        train_dataset = ModelOur2Dataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "ours":
         train_dataset = ModelOursDataset(data_list, args, data_window_config, mode=mode)
     else:
