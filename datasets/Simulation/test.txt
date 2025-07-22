@@ -1,2 +1,0 @@
-# altitude_hold_noise_200s
-altitude_hold_noise_200s/processed_data/test
