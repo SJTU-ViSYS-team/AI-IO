@@ -36,13 +36,13 @@ class MeasSourceNetwork:
         self.net.eval().to(self.device)
         logging.info("Model {} loaded to device {}.".format(model_path, self.device))
 
-    def get_measurement(self, net_t_s, ypr, net_accl_b, net_gyr_b):
+    def get_measurement(self, net_t_s, atti, net_accl_b, net_gyr_b, net_rotor):
         meas, meas_cov = self.get_vb_measurement_model_net(
-            net_t_s, ypr, net_accl_b, net_gyr_b)
+            net_t_s, atti, net_accl_b, net_gyr_b, net_rotor)
         return meas, meas_cov
 
-    def get_vb_measurement_model_net(self, net_t_s, ypr, net_accl_b, net_gyr_b):
-        features = np.concatenate([ypr, net_accl_b, net_gyr_b], axis=1)  # N x 9
+    def get_vb_measurement_model_net(self, net_t_s, atti, net_accl_b, net_gyr_b, net_rotor):
+        features = np.concatenate([net_accl_b, net_gyr_b, net_rotor, atti], axis=1)  # N x 9
         features_t = torch.unsqueeze(
             torch.from_numpy(features.T).float().to(self.device), 0
         )  # 1 x 9 x N

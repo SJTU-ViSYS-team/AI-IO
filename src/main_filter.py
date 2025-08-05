@@ -44,10 +44,8 @@ if __name__ == "__main__":
     # ----------------------- io params -----------------------
     io_groups = parser.add_argument_group("io")
 
-    # io_groups.add_argument("--root_dir", type=str, help="Path to data directory")
     io_groups.add_argument("--data_config", type=str, help="Path to data config")
     io_groups.add_argument("--dataset", type=str, required=True)
-    # io_groups.add_argument("--data_list", type=str, default="test.txt")
     io_groups.add_argument("--checkpoint_fn", type=str, help="path to trained network.", required=True)
     io_groups.add_argument("--model_param_fn", type=str, default='', help="path to .json file")
     io_groups.add_argument("--out_dir", type=str, help="Path to res directory")
@@ -86,8 +84,11 @@ if __name__ == "__main__":
     filter_group.add_argument("--init_pos_sigma", type=float, default=1.0)  # m
     filter_group.add_argument("--init_bg_sigma", type=float, default=1e-4)  # rad/s
     filter_group.add_argument("--init_ba_sigma", type=float, default=1e-4)  # m/s^2
-    filter_group.add_argument("--g_norm", type=float, default=9.8082)
+    filter_group.add_argument("--g_norm", type=float, default=9.7946)
 
+    add_bool_arg(
+        filter_group, "use_gt_atti", default=False
+    )  # use groudtruth attitude
     add_bool_arg(
         filter_group, "initialize_with_gt", default=True
     )  # initialize state with gt state
@@ -136,12 +137,6 @@ if __name__ == "__main__":
         drives = entry["data_drive"]
         for drive in drives:
             test_list.append((drive, os.path.join(root, drive, "processed_data", test_config["mode"])))
-    # with open(os.path.join(args.root_dir, args.dataset, args.data_list)) as f:
-    #     data_names = [
-    #         s.strip().split("," or " ")[0]
-    #         for s in f.readlines()
-    #         if len(s) > 0 and s[0] != "#"
-    #     ]
 
     if args.model_param_fn == '':
         model_param_fn = "model_net_parameters.json"

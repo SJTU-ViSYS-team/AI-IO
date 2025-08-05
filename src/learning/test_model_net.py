@@ -84,7 +84,7 @@ def torch_to_numpy(torch_arr):
     return torch_arr.cpu().detach().numpy()
 
 
-def get_inference(learn_configs, network, data_loader, device, epoch, debias_net=None):
+def get_inference(learn_configs, network, data_loader, device, epoch):
     """
     Get network status
     """
@@ -93,34 +93,26 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
     errs_all, losses_all = [], []
     
     network.eval()
-    if debias_net:
-        debias_net.eval()
 
     for _, (feat, targ, ts, _, _) in enumerate(data_loader):
-        # feat_i = [[feat_gyros], [feat_thrusts]]
-        # dims = [batch size, 6, window size]
+        # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
+        # dims = [batch size, 16, window size]
         # targ = [dv]
         # dims = [batch size, 3]
         feat = feat.to(device)
         targ = targ.to(device)
-        # 预处理加速度数据
-        if debias_net:
-            with torch.no_grad():
-                accel_data = feat[:, 3:6, :]  # 取出加速度数据
-                accel_debiased = accel_data + debias_net(accel_data).unsqueeze(2).repeat(1,1, accel_data.shape[2])  # 通过去偏网络
-                feat[:, 3:6, :] = accel_debiased  # 替换原来的加速度数据
         
         pred, pred_cov = network(feat)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
         errs = pred - targ
-        errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
+        # errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
         
         # log
         losses_all.append(torch_to_numpy(loss))
         # errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
-        errs_all.append(errs_norm)
+        errs_all.append(torch_to_numpy(errs))
 
         ts_all.append(torch_to_numpy(ts))
         targets_all.append(torch_to_numpy(targ))
@@ -130,6 +122,9 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
 
     losses_all = np.concatenate(losses_all, axis=0)
     errs_all = np.concatenate(errs_all, axis=0)
+    errs_norm = np.linalg.norm(errs_all, axis=1)
+    
+    rmse = np.sqrt(np.mean(errs_all ** 2, axis=0))
 
     ts_all = np.concatenate(ts_all, axis=0)
     targets_all = np.concatenate(targets_all, axis=0)
@@ -139,7 +134,8 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
         
     attr_dict = {
         "losses": losses_all,
-        "errs": errs_all,
+        "errs": errs_norm,
+        "rmse": rmse,
         "ts": ts_all,
         "targets": targets_all,
         "pred_all": pred_all,
@@ -156,21 +152,15 @@ def get_datalist(config):
         drives = entry["data_drive"]
         for drive in drives:
             data_list.append((drive, os.path.join(root, drive, "processed_data", config["mode"])))
-    # with open(list_path) as f:
-    #     data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
     return data_list
 
 def test(args):
     try:
         if args.data_config is None:
             raise ValueError("data_config must be specified.")
-        # 读取 config 文件（你可以用一个新的参数 --data_config 指定路径）
+
         conf = ConfigFactory.parse_file(args.data_config)
 
-        # if args.root_dir is None:
-        #     raise ValueError("root_dir must be specified.")
-        # if args.test_list is None:
-        #     raise ValueError("test_list must be specified.")
         if args.dataset is None:
             raise ValueError("dataset must be specified.")
         if args.out_dir is not None:
@@ -184,10 +174,9 @@ def test(args):
         logging.error(e)
         return
 
-    # 提取 test 配置
     test_config = conf["test"]
     test_list = get_datalist(test_config)
-    # test_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.test_list))
+
     device = torch.device(
         "cuda:0" if torch.cuda.is_available() and not args.cpu else "cpu"
     )
@@ -196,26 +185,12 @@ def test(args):
 
     input_dim = args.input_dim
     output_dim = args.output_dim
-    network = get_model(input_dim, output_dim).to(device)
+    network = get_model(input_dim, output_dim, data_window_config["window_size"]).to(
+        device
+    )
     network.load_state_dict(checkpoint["model_state_dict"])
     network.eval()
     logging.info(f"Model {model_path} loaded to device {device}.")
-
-    #TODO: add debias network
-    if args.debias_accel:
-        from debias.network.model_factory import get_model as get_debias_model
-        debias_model_path = args.debias_model_path
-        debias_checkpoint = torch.load(debias_model_path, map_location=device)
-        debias_net_config = {
-        "in_dim": (
-            100
-        )}
-        debias_net = get_debias_model("tcn", debias_net_config, 3, 3).to(device)
-        debias_net.load_state_dict(debias_checkpoint["model_state_dict"])
-        debias_net.eval()
-        logging.info(f"Model {args.debias_model_path} loaded to device {device}.")
-    else:
-        debias_net = None
 
     # process sequences
     for seq_name, data in test_list:
@@ -228,11 +203,9 @@ def test(args):
             continue
 
         # Obtain outputs
-        net_attr_dict = get_inference(net_config, network, seq_loader, device, 50, debias_net)
+        net_attr_dict = get_inference(net_config, network, seq_loader, device, args.epochs)
 
         # Print loss infos
-        print(net_attr_dict["errs"].shape)
-        print(net_attr_dict["losses"].shape)
         errs_vel = np.mean(net_attr_dict["errs"])
         loss = np.mean(net_attr_dict["losses"])
         
@@ -243,21 +216,21 @@ def test(args):
         # save displacement related quantities
         ts = net_attr_dict["ts"]
         pred = net_attr_dict["pred_all"] # n*3
-        pred_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), pred), axis=1)
+        pred_sampled = np.concatenate((ts[:, -1].reshape(-1, 1), pred), axis=1)
         pred_cov = net_attr_dict["pred_cov_all"]
         pred_cov[pred_cov<-4] = -4
         for i in range(3):
             pred_cov[:, i] = torch.exp(2 * torch.tensor(pred_cov[:, i], dtype=torch.float32))
-        pred_cov_sampled = np.concatenate((ts[:, 0].reshape(-1, 1), ts[:, -1].reshape(-1, 1), pred_cov), axis=1)
+        pred_cov_sampled = np.concatenate((ts[:, -1].reshape(-1, 1), pred_cov), axis=1)
 
 
         outdir = os.path.join(args.out_dir, args.dataset, seq_name)
         if os.path.exists(outdir) is False:
             os.makedirs(outdir)
         outfile = os.path.join(outdir, "model_net_learnt_predictions.txt")
-        np.savetxt(outfile, pred_sampled, fmt="%.12f", header="t0 t1 dpx dpy dpz")
+        np.savetxt(outfile, pred_sampled, fmt="%.12f", header="t0 vx vy vz")
         outfile = os.path.join(outdir, "model_net_learnt_predictions_covariance.txt")
-        np.savetxt(outfile, pred_cov_sampled, fmt="%.5f", header="t0 t1 covx covy covz")
+        np.savetxt(outfile, pred_cov_sampled, fmt="%.5f", header="t0 covx covy covz")
 
         # save loss
         outfile = os.path.join(outdir, "net_losses.txt")
@@ -266,11 +239,23 @@ def test(args):
         # plotting
         if args.show_plots:
             plot_dir = os.path.join(outdir, "plots")
-            os.makedirs(plot_dir, exist_ok=True)  # 确保目录存在
+            os.makedirs(plot_dir, exist_ok=True)
 
             # compute errors
             vel_targets = net_attr_dict["targets"]
             vel_errs = pred - vel_targets
+            sum_vel = np.linalg.norm(pred, axis=1)
+            plt.figure('Sum Speed')
+    
+            plt.plot(sum_vel)
+            plt.xlabel("epoch")
+            plt.ylabel('x(m/s)')
+
+            plt.tight_layout()
+            plt.savefig(os.path.join(plot_dir, "speed.svg"), bbox_inches='tight')
+            plt.savefig(os.path.join(plot_dir, "speed.png"))
+            plt.close()
+
 
             # --- Velocity Plot ---
             plt.figure(figsize=(12, 6))
@@ -340,6 +325,7 @@ def test(args):
                     f.write(f'{axis}\n')
                     f.write('mean = %.5f\n' % np.mean(vel_errs[:, i]))
                     f.write('std = %.5f\n' % np.std(vel_errs[:, i]))
+                    f.write('rmse = %.5f\n' % net_attr_dict["rmse"][i])
 
                 f.write("-- Summary --\n")
                 f.write(f"average vel err [m/s]: {errs_vel}\n")
@@ -367,23 +353,3 @@ def construct_dataset(args, data_list, data_window_config, mode="test"):
     else:
         raise ValueError(f"Unknown dataset {args.dataset}")
     return train_dataset
-
-# def construct_dataset(args, data_list, data_window_config, mode="train"):
-#     if args.dataset == "DIDO":
-#         train_dataset = ModelDIDODataset(
-#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
-#     elif args.dataset == "Blackbird":
-#         train_dataset = ModelBlackbirdDataset(
-#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
-#     elif args.dataset == "FPV":
-#         train_dataset = ModelFPVDataset(
-#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
-#     elif args.dataset == "Simulation":
-#         train_dataset = ModelSimulationDataset(
-#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
-#     elif args.dataset == "ours":
-#         train_dataset = ModelOursDataset(
-#             args.root_dir, args.dataset, data_list, args, data_window_config, mode=mode)
-#     else:
-#         raise ValueError(f"Unknown dataset {args.dataset}")
-#     return train_dataset

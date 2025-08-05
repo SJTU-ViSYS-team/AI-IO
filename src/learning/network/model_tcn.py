@@ -10,10 +10,13 @@ This file is subject to the terms and conditions defined in the file
 Reference: https://github.com/CathIAS/TLIO/blob/master/src/network/model_tcn.py
 """
 
+from typing import Optional
 import torch
 import torch.nn as nn
 from torch.nn import MultiheadAttention
 from torch.nn.utils import weight_norm
+
+import math
 
 
 dict_activation = {"ReLU": nn.ReLU, "GELU": nn.GELU}
@@ -158,7 +161,6 @@ class Tcn(nn.Module):
             dropout=dropout,
             activation=dict_activation[activation],
         )
-        # self.gru = nn.GRU(input_size = 128, hidden_size =64, num_layers = 1, batch_first = True,bidirectional=True)
         self.linear1 = nn.Linear(num_channels[-1], output_size)
         self.linear2 = nn.Linear(num_channels[-1], output_size)
         self.init_weights()
@@ -172,47 +174,17 @@ class Tcn(nn.Module):
 
     def forward(self, x):
         x = self.tcn(x)
-        # x = x.permute(0, 2, 1)
-        # x, _ = self.gru(x)
-        # x = x.permute(0, 2, 1)
         pred = self.linear1(x[:, :, -1])
         pred_cov = self.linear2(x[:, :, -1])
         return pred, pred_cov
-
-class LearnableFilter(nn.Module):
-    def __init__(self, channels=3, kernel_size=5, init_as_mean=True):
-        """
-        :param channels: 输入通道数（对应加速度计三轴）
-        :param kernel_size: 卷积核大小（决定滤波窗口长度）
-        :param init_as_mean: 是否初始化为均值滤波器
-        """
-        super().__init__()
-        self.kernel_size = kernel_size
-        
-        # 使用深度可分离卷积（Depthwise Conv1D）
-        self.conv = nn.Conv1d(
-            in_channels=channels,
-            out_channels=channels,  # 输出通道与输入相同
-            kernel_size=kernel_size,
-            padding= (kernel_size//2),  # 保持时序长度不变
-            groups=channels,  # 关键！每个通道独立卷积
-            bias=False  # 滤波器不需要偏置
-        )
-        
-        # 初始化策略
-        if init_as_mean:
-            # 初始化为均值滤波器（类似滑动平均）
-            self.conv.weight.data = torch.ones_like(self.conv.weight) / kernel_size
-            self.conv.weight.requires_grad = True  # 允许后续学习调整
     
-    def forward(self, x):
-        """
-        :param x: 输入加速度数据 [Batch, Channels, Time Steps]
-        :return: 滤波后的数据 [Batch, Channels, Time Steps]
-        """
-        return self.conv(x)
+class TcnGru(nn.Module):
+    """
+    This tcn is trained so that the output at current time is a vector that contains
+    the prediction using the last second of inputs.
+    The receptive field is givent by the input parameters.
+    """
 
-class NoiseAwareTCN(nn.Module):
     def __init__(
         self,
         input_size,
@@ -222,8 +194,7 @@ class NoiseAwareTCN(nn.Module):
         dropout,
         activation="ReLU",
     ):
-        super().__init__()
-        self.filter = LearnableFilter(channels=3, kernel_size=5)
+        super(TcnGru, self).__init__()
         self.tcn = TemporalConvNet(
             input_size,
             num_channels,
@@ -231,6 +202,7 @@ class NoiseAwareTCN(nn.Module):
             dropout=dropout,
             activation=dict_activation[activation],
         )
+        self.gru = nn.GRU(input_size = 128, hidden_size =64, num_layers = 1, batch_first = True, bidirectional=True)
         self.linear1 = nn.Linear(num_channels[-1], output_size)
         self.linear2 = nn.Linear(num_channels[-1], output_size)
         self.init_weights()
@@ -241,92 +213,244 @@ class NoiseAwareTCN(nn.Module):
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-    
-    def forward(self, x):
-        angles = x[:, :3]
-        acc = x[:, 3:6]
-        filtered_acc = self.filter(acc)
-        cleaned_input = torch.cat([angles, filtered_acc], dim=1)
-        x = self.tcn(cleaned_input)
+
+    def forward(self, x, h_prev=None):
+        x = self.tcn(x)
+        x = x.permute(0, 2, 1)
+        x, h = self.gru(x, h_prev)
+        x = x.permute(0, 2, 1)
         pred = self.linear1(x[:, :, -1])
         pred_cov = self.linear2(x[:, :, -1])
-        return pred, pred_cov
-    
-class TcnWithAttention(nn.Module):
+        return pred, pred_cov, h
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=500):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float32).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(1)  # [T, 1, D]
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        x = x + self.pe[:x.size(0)]
+        return x
+
+class TransformerEncoderLayerWithAttention(nn.TransformerEncoderLayer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.attn_weights: Optional[torch.Tensor] = None  # save attention weights
+
+    def _sa_block(
+        self,
+        x: torch.Tensor,
+        attn_mask: Optional[torch.Tensor],
+        key_padding_mask: Optional[torch.Tensor],
+        is_causal: bool = False,
+    ) -> torch.Tensor:
+        # original Self-Attention apply
+        x_out, attn_weights = self.self_attn(
+            x, x, x,
+            attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask,
+            need_weights=True,
+            average_attn_weights=False,
+            is_causal=is_causal,
+        )
+
+        if not self.training:
+            self.attn_weights = attn_weights.detach()
+
+        return self.dropout1(x_out)
+
+class IMUTransformerWithModality(nn.Module):
     def __init__(
         self,
-        input_size,
-        output_size,
-        num_channels,
-        kernel_size,
-        dropout,
-        activation="ReLU",
-        attn_heads=4
+        sub_dim=16,
+        nhead=4,
+        num_layers=2,
+        dim_feedforward=128,
+        dropout=0.2,
+        output_size=3,
+        window_size=50,
+        enabled_modalities=["acc", "gyro", "rotor_spd", "atti"],  
     ):
-        super().__init__()
-        
-        # 原始TCN部分保持不变
-        self.tcn = TemporalConvNet(
-            input_size,
-            num_channels,
-            kernel_size=kernel_size,
-            dropout=dropout,
-            activation=dict_activation[activation],
-        )
-        
-        # 新增注意力机制
-        self.attention = MultiheadAttention(
-            embed_dim=num_channels[-1],  # 输入维度与TCN输出通道一致
-            num_heads=attn_heads,
-            dropout=dropout,
-            batch_first=False  # 适配TCN的输出维度
-        )
-        
-        # 新增注意力后的特征融合层
-        self.attn_proj = nn.Linear(num_channels[-1], num_channels[-1])
-        
-        # 修改原始全连接层（保持双输出结构）
-        self.linear1 = nn.Linear(num_channels[-1] * 2, output_size)  # 拼接原始和注意力特征
-        self.linear2 = nn.Linear(num_channels[-1] * 2, output_size)
-        
+        super(IMUTransformerWithModality, self).__init__()
+        self.enabled_modalities = enabled_modalities
+        self.modalities_fc = nn.ModuleDict()
+
+        num_enabled = len(self.enabled_modalities)
+        d_model = num_enabled * sub_dim
+        self.d_model = d_model
+        if num_enabled == 0:
+            raise ValueError("At least one modality must be enabled.")
+        # sub_dim = d_model // num_enabled
+
+        if "acc" in self.enabled_modalities:
+            self.modalities_fc["acc"] = nn.Linear(3, sub_dim)
+        if "gyro" in self.enabled_modalities:
+            self.modalities_fc["gyro"] = nn.Linear(3, sub_dim)
+        if "rotor_spd" in self.enabled_modalities:
+            self.modalities_fc["rotor_spd"] = nn.Linear(4, sub_dim)
+        if "atti" in self.enabled_modalities:
+            self.modalities_fc["atti"] = nn.Linear(6, sub_dim)
+
+        self.pos_encoder = PositionalEncoding(d_model)
+
+        self.acc_norm_layer = EmpiricalNormalization(3)
+        self.gyro_norm_layer = EmpiricalNormalization(3)
+        self.rotor_spd_norm_layer = EmpiricalNormalization(4)
+        # self.atti_norm_layer = EmpiricalNormalization(3)
+
+        encoder_layers = nn.ModuleList([
+            TransformerEncoderLayerWithAttention(
+                d_model=d_model,
+                nhead=nhead,
+                dim_feedforward=dim_feedforward,
+                dropout=dropout,
+                batch_first=False
+            ) for _ in range(num_layers)
+        ])
+        self.transformer = nn.TransformerEncoder(encoder_layers[0], num_layers=1)  # dummy init
+        self.transformer.layers = encoder_layers
+
+        # encoder_layers = nn.ModuleList([
+        #     nn.TransformerEncoderLayer(
+        #         d_model=d_model,
+        #         nhead=nhead,
+        #         dim_feedforward=dim_feedforward,
+        #         dropout=dropout,
+        #         batch_first=False
+        #     ) for _ in range(num_layers)
+        # ])
+        # self.transformer = nn.TransformerEncoder(encoder_layers[0], num_layers=1)  # dummy init
+        # self.transformer.layers = encoder_layers
+
+
+        # encoder_layer = nn.TransformerEncoderLayer(
+            # d_model=d_model,
+            # nhead=nhead,
+            # dim_feedforward=dim_feedforward,
+            # dropout=dropout,
+            # batch_first=False
+        # )
+        # self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.output_head = nn.Linear(d_model, output_size)
+        self.output_cov = nn.Linear(d_model, output_size)
         self.init_weights()
 
     def init_weights(self):
-        # 原始初始化
-        self.linear1.weight.data.normal_(0, 0.01)
-        self.linear2.weight.data.normal_(0, 0.01)
-        # 注意力相关初始化
-        nn.init.xavier_uniform_(self.attention.in_proj_weight)
-        nn.init.constant_(self.attention.out_proj.bias, 0.1)
+        nn.init.normal_(self.output_head.weight, mean=0, std=0.01)
+        nn.init.normal_(self.output_cov.weight, mean=0, std=0.01)
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
-        # 原始TCN处理 [batch, channels, time]
-        tcn_out = self.tcn(x)  # 假设输入x形状为 [B, input_size, T]
-        
-        # 维度转换以适应注意力机制
-        # [B, C, T] → [T, B, C] （时间步作为序列长度）
-        tcn_out_perm = tcn_out.permute(2, 0, 1)  
-        
-        # 自注意力处理
-        attn_out, _ = self.attention(
-            query=tcn_out_perm,
-            key=tcn_out_perm,
-            value=tcn_out_perm
-        )  # 输出形状 [T, B, C]
-        
-        # 特征融合（残差连接+投影）
-        fused_feature = self.attn_proj(attn_out + tcn_out_perm)  # [T, B, C]
-        
-        # 拼接原始TCN特征和注意力特征（沿通道维度）
-        final_feature = torch.cat([
-            tcn_out[:, :, -1],          # 原始TCN最后时间步 [B, C]
-            fused_feature[-1, :, :]     # 注意力最后时间步 [B, C]
-        ], dim=1)  # → [B, 2C]
-        
-        # 双输出结构保持不变
-        pred = self.linear1(final_feature)
-        pred_cov = self.linear2(final_feature)
+        """
+        x: [B, C, T]  —  acc(3), gyro(3), rotor_spd(4), quat(4)
+        """
+        B, _, T = x.shape
+        feat_list = []
+        self.activations = {}
+
+        if "acc" in self.enabled_modalities:
+            acc = x[:, :3, :] # (B, C, T)
+            self.acc_norm_layer.update(acc)
+            acc = self.acc_norm_layer(acc).permute(0, 2, 1)
+            acc_f = self.modalities_fc["acc"](acc)
+            feat_list.append(acc_f)
+            self.activations["acc"] = acc_f.detach().cpu()
+
+        if "gyro" in self.enabled_modalities:
+            gyro = x[:, 3:6, :]
+            self.gyro_norm_layer.update(gyro)
+            gyro = self.gyro_norm_layer(gyro).permute(0, 2, 1)
+            gyro_f = self.modalities_fc["gyro"](gyro)
+            feat_list.append(gyro_f)
+            self.activations["gyro"] = gyro_f.detach().cpu()
+
+        if "rotor_spd" in self.enabled_modalities:
+            start = 6
+            rotor_spd = x[:, start:start+4, :]
+            rotor_spd_squared = rotor_spd ** 2
+            self.rotor_spd_norm_layer.update(rotor_spd_squared)
+            rotor_spd_squared = self.rotor_spd_norm_layer(rotor_spd_squared).permute(0, 2, 1)
+            rotor_spd_f = self.modalities_fc["rotor_spd"](rotor_spd_squared)
+            feat_list.append(rotor_spd_f)
+            self.activations["rotor_spd"] = rotor_spd_f.detach().cpu()
+
+        if "atti" in self.enabled_modalities:
+            atti = x[:, 10:, :].permute(0, 2, 1)
+            # self.atti_norm_layer.update(atti)
+            # atti = self.atti_norm_layer(atti).permute(0, 2, 1)
+            atti_f = self.modalities_fc["atti"](atti)
+            feat_list.append(atti_f)
+            self.activations["atti"] = atti_f.detach().cpu()
+
+        fused = torch.cat(feat_list, dim=-1)  # [B, T, D]
+        fused = fused.permute(1, 0, 2)        # [T, B, D]
+
+        x = self.pos_encoder(fused)
+        x = self.transformer(x)
+        last_step = x[-1, :, :]  # [B, D]
+        pred = self.output_head(last_step)
+        pred_cov = self.output_cov(last_step)
         return pred, pred_cov
+
+class EmpiricalNormalization(nn.Module):
+    """Normalize mean and variance of values based on empirical values."""
+
+    def __init__(self, dim, eps=1e-2, until=None):
+        """Initialize EmpiricalNormalization module."""
+        super().__init__()
+        self.eps = eps
+        self.until = until
+        self.register_buffer("_mean", torch.zeros(dim).unsqueeze(0))
+        self.register_buffer("_var", torch.ones(dim).unsqueeze(0))
+        self.register_buffer("_std", torch.ones(dim).unsqueeze(0))
+        self.register_buffer("count", torch.tensor(0, dtype=torch.long))
+
+    @property
+    def mean(self):
+        return self._mean.squeeze(0).clone()
+
+    @property
+    def std(self):
+        return self._std.squeeze(0).clone()
+
+    def forward(self, x):
+        """Normalize mean and variance of values based on empirical values."""
+        assert x.dim() == 3, "Input must be a 3D tensor (B, N, T)."
+        return (x - self._mean[..., None]) / (self._std[..., None] + self.eps)
+
+    @torch.jit.unused
+    def update(self, x):
+        """Learn input values without computing the output values of them"""
+
+        assert x.dim() == 3, "Input must be a 3D tensor (B, N, T)."
+        x = x.permute(0, 2, 1).contiguous()
+        x = x.view(-1, x.size(-1))  # (B*T, N)
+
+        if self.until is not None and self.count >= self.until:
+            return
+
+        count_x = x.shape[0]
+        self.count += count_x
+        rate = count_x / self.count
+        var_x = torch.var(x, dim=0, unbiased=False, keepdim=True)
+        mean_x = torch.mean(x, dim=0, keepdim=True)
+        delta_mean = mean_x - self._mean
+        self._mean += rate * delta_mean
+        self._var += rate * (var_x - self._var + delta_mean * (mean_x - self._mean))
+        self._std = torch.sqrt(self._var)
+
+    @torch.jit.unused
+    def inverse(self, y):
+        """De-normalize values based on empirical values."""
+
+        return y * (self._std + self.eps) + self._mean
+    

@@ -14,7 +14,7 @@ from pyhocon import ConfigFactory
 '''
     python src/learning/data_management/prepare_datasets/our2.py --config config/our2.conf
 '''
-# NOTE: 坐标系一致，不需要转换
+# NOTE: 
 # the provided ground truth is the drone body in the NWU vicon frame
 # rotate to have z upwards, to NWU
 # R_w_nwu = np.array([
@@ -38,9 +38,9 @@ from pyhocon import ConfigFactory
 # ])
 # t_w2_w1 = np.array([0., 0., 0.])
 
-# dt = 0.01
+dt = 0.01
 
-def process_sequence(dataset_dir, seq_name, mode, save_txt):
+def process_sequence(dataset_dir, seq_name, save_txt, split_ratios=(0.7, 0.15, 0.15)):
     # base_seq_name = os.path.dirname(os.path.dirname(seq_name))
     data_dir = os.path.join(dataset_dir, seq_name)
     assert os.path.isdir(data_dir), '%s' % data_dir
@@ -52,15 +52,17 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
         raise RuntimeError(f"Multiple .mcap files found: {mcap_files}, please specify one.")
     else:
         mcap_fn = os.path.join(data_dir, mcap_files[0])
-    # rosbag_fn = os.path.join(data_dir, 'rosbag.bag')
 
     # Read data
     raw_imu = []  # [ts wx wy wz ax ay az]
     pose_gt = []
-    dt = 0.01
+    throt = []
+    esc = []
 
     imu_topic = '/mavros/imu/data'
     pose_topic = '/odom/global'
+    throt_topic = '/mavros/vfr_hud'
+    esc_topic = '/mavros/esc'
 
     print('Reading data from %s' % mcap_fn)
     decoder = Decoder()
@@ -93,40 +95,43 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
                 ])
                 pose_gt.append(pose_i)
 
+            elif channel.topic == throt_topic and channel.message_encoding == "cdr":
+                try:
+                    ros_msg = decoder.decode(schema, msg)
+                except Exception as e:
+                    print(f"[Decode error] {e}")
+                    continue
+                throt_i = np.array([
+                    ros_msg.header.stamp.sec + ros_msg.header.stamp.nanosec*1e-9,
+                    ros_msg.throttle
+                ])
+                throt.append(throt_i)
+
+            elif channel.topic == esc_topic and channel.message_encoding == "cdr":
+                try:
+                    ros_msg = decoder.decode(schema, msg)
+                except Exception as e:
+                    print(f"[Decode error] {e}")
+                    continue
+                esc_i = np.array([
+                    ros_msg.esc_status[0].header.stamp.sec + ros_msg.esc_status[0].header.stamp.nanosec*1e-9,
+                    ros_msg.esc_status[0].rpm, ros_msg.esc_status[1].rpm, ros_msg.esc_status[2].rpm, ros_msg.esc_status[3].rpm
+                ])
+                esc.append(esc_i)
+
     raw_imu = np.asarray(raw_imu)
     pose_gt = np.asarray(pose_gt)
+    throt = np.asarray(throt)
+    esc = np.asarray(esc)
 
     gt_traj_tmp = pose_gt
 
-    # # include velocities
-    # gt_times = pose_gt[:, 0]
-    # gt_pos = pose_gt[:, 1:4]
-
-    # # compute velocity
-    # v_start = ((gt_pos[1] - gt_pos[0]) / (gt_times[1] - gt_times[0])).reshape((1, 3))
-    # gt_vel_raw = (gt_pos[1:] - gt_pos[:-1]) / (gt_times[1:] - gt_times[:-1])[:, None]
-    # gt_vel_raw = np.concatenate((v_start, gt_vel_raw), axis=0)
-    # # filter
-    # gt_vel_x = np.convolve(gt_vel_raw[:, 0], np.ones(5) / 5, mode='same')
-    # gt_vel_x = gt_vel_x.reshape((-1, 1))
-    # gt_vel_y = np.convolve(gt_vel_raw[:, 1], np.ones(5) / 5, mode='same')
-    # gt_vel_y = gt_vel_y.reshape((-1, 1))
-    # gt_vel_z = np.convolve(gt_vel_raw[:, 2], np.ones(5) / 5, mode='same')
-    # gt_vel_z = gt_vel_z.reshape((-1, 1))
-    # gt_vel = np.concatenate((gt_vel_x, gt_vel_y, gt_vel_z), axis=1)
-
-    # gt_traj_tmp = np.concatenate((pose_gt, gt_vel), axis=1)  # [ts x y z qx qy qz qw vx vy vz]
-
-    # In FPV dataset, the sensors measurements are at:
-    # 500 Hz IMU meas.
-    # resample imu at exactly 100 Hz
-    # dt = 0.01
     t_curr = raw_imu[0, 0]
     new_times_imu = [t_curr]
     while t_curr < raw_imu[-1, 0] - dt - 0.0001:
         t_curr = t_curr + dt
         new_times_imu.append(t_curr)
-    new_times_imu = np.asarray(new_times_imu) # 严格的500Hz时间序列
+    new_times_imu = np.asarray(new_times_imu) # fixed frequency time sequence
     gyro_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 1:4], axis=0)(new_times_imu)
     accel_tmp = interp1d(raw_imu[:, 0], raw_imu[:, 4:7], axis=0)(new_times_imu)
     raw_imu = np.concatenate((new_times_imu.reshape((-1, 1)), gyro_tmp, accel_tmp), axis=1)
@@ -136,7 +141,7 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
     # get initial and final times for interpolations
     idx_s = 0
     for ts in times_imu:
-        if ts > gt_traj_tmp[0, 0]:
+        if ts > gt_traj_tmp[0, 0] and ts > throt[0, 0] and ts > esc[0, 0]:
             break
         else:
             idx_s = idx_s + 1
@@ -144,7 +149,7 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
 
     idx_e = len(times_imu) - 1
     for ts in reversed(times_imu):
-        if ts < gt_traj_tmp[-1, 0]:
+        if ts < gt_traj_tmp[-1, 0] and ts < throt[-1, 0] and ts < esc[-1, 0]:
             break
         else:
             idx_e = idx_e - 1
@@ -153,18 +158,22 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
     times_imu = times_imu[idx_s:idx_e + 1]
     raw_imu = raw_imu[idx_s:idx_e + 1]
     start_time, end_time = times_imu[0], times_imu[-1]
-    times_config = {
-        mode: [start_time, end_time]
-    }
 
     # interpolate ground-truth samples at imu times
+    throt_data = interp1d(throt[:, 0], throt[:, 1],axis=0)(times_imu)
+    esc_data = interp1d(esc[:, 0], esc[:, 1:],axis=0)(times_imu)
     groundtruth_pos_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 1:4], axis=0)(times_imu)
     groundtruth_rot_data = Slerp(gt_traj_tmp[:, 0], Rotation.from_quat(gt_traj_tmp[:, 4:8]))(times_imu)
     groundtruth_vel_data = interp1d(gt_traj_tmp[:, 0], gt_traj_tmp[:, 8:11], axis=0)(times_imu)
-    groundtruth_rot_data_inv = groundtruth_rot_data.inv()
-    # prepare vel in b frame
-    # groundtruth_vel_data_b = groundtruth_rot_data_inv.apply(groundtruth_vel_data)
 
+    throttle_data = np.concatenate((
+        times_imu.reshape((-1, 1)),
+        throt_data.reshape((-1, 1))
+    ),axis=1)
+    rotor_spd_data = np.concatenate((
+        times_imu.reshape((-1, 1)),
+        esc_data
+    ),axis=1)
     gt_traj = np.concatenate((times_imu.reshape((-1, 1)),
                                 groundtruth_pos_data,
                                 groundtruth_rot_data.as_quat(),
@@ -180,76 +189,70 @@ def process_sequence(dataset_dir, seq_name, mode, save_txt):
     a_calib = raw_imu[:, 4:].T - b_a[:, None]
     calib_imu = np.concatenate((raw_imu[:, 0].reshape((-1, 1)), w_calib.T, a_calib.T), axis=1)
 
-    # sample relevant times
-    ts0, ts1 = times_config[mode]
-    idx0_candidates = np.where(ts >= ts0)[0]
-    idx1_candidates = np.where(ts >= ts1)[0]
+    total_len = len(ts)
+    raw_splits = [int(r * total_len) for r in split_ratios]
+    raw_splits[-1] = total_len - sum(raw_splits[:-1]) 
+    split_points = np.cumsum(raw_splits)
+    split_names = ['train', 'val', 'test']
 
-    if len(idx0_candidates) == 0 or len(idx1_candidates) == 0:
-        raise ValueError(f"No valid index found for mode={mode}: ts0={ts0}, ts1={ts1}, ts range=({ts[0]}, {ts[-1]})")
+    prev_idx = 0
+    for name, end_idx in zip(split_names, split_points):
+        if end_idx - prev_idx == 0:
+            prev_idx = end_idx
+            continue
 
-    idx0 = idx0_candidates[0]
-    idx1 = idx1_candidates[0]
+        ts_sub = ts[prev_idx:end_idx]
+        raw_imu_sub = raw_imu[prev_idx:end_idx]
+        calib_imu_sub = calib_imu[prev_idx:end_idx]
+        gt_traj_sub = gt_traj[prev_idx:end_idx]
+        throttle_sub = throttle_data[prev_idx:end_idx]
+        rotor_spd_sub = rotor_spd_data[prev_idx:end_idx]
 
-    ts_mode = ts[idx0:idx1]
-    raw_imu_mode = raw_imu[idx0:idx1]
-    calib_imu_mode = calib_imu[idx0:idx1]
-    gt_traj_mode = gt_traj[idx0:idx1]
+        out_dir = os.path.join(dataset_dir, seq_name, 'processed_data', name)
+        os.makedirs(out_dir, exist_ok=True)
+        out_fn = os.path.join(out_dir, "data.hdf5")
+        with h5py.File(out_fn, "w") as f:
+            f.create_dataset("ts", data=ts_sub)
+            f.create_dataset("gyro_raw", data=raw_imu_sub[:, 1:4])
+            f.create_dataset("accel_raw", data=raw_imu_sub[:, 4:])
+            f.create_dataset("gyro_calib", data=calib_imu_sub[:, 1:4])
+            f.create_dataset("accel_calib", data=calib_imu_sub[:, 4:])
+            f.create_dataset("traj_target", data=gt_traj_sub[:, 1:11])
+            f.create_dataset("gyro_bias", data=b_g)
+            f.create_dataset("accel_bias", data=b_a)
+            f.create_dataset("throttle", data=throttle_sub[:, 1:])
+            f.create_dataset("rotor_spd", data=rotor_spd_sub[:, 1:])
 
-    # Not supported on this branch
-    # traj_target_oris_from_imu_list = []
-    # traj_target_oris_from_imu_list.append(gt_traj[0])
-    # traj_target_oris_from_imu = np.asarray(traj_target_oris_from_imu_list)
+        print(f"[{name}] data is saved to {out_fn}")
 
-    # Save
-    out_dir = os.path.join(data_dir, 'processed_data', mode)
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-    out_fn = os.path.join(out_dir, "data.hdf5")
-    with h5py.File(out_fn, "w") as f:
-        ts = f.create_dataset("ts", data=ts_mode)
-        gyro_raw = f.create_dataset("gyro_raw", data=raw_imu_mode[:, 1:4])
-        accel_raw = f.create_dataset("accel_raw", data=raw_imu_mode[:, 4:])
-        gyro_calib = f.create_dataset("gyro_calib", data=calib_imu_mode[:, 1:4])
-        accel_calib = f.create_dataset("accel_calib", data=calib_imu_mode[:, 4:])
-        traj_target = f.create_dataset("traj_target", data=gt_traj_mode[:, 1:11])
-        # traj_target_oris_from_imu_target = \
-        #     f.create_dataset("traj_target_oris_from_imu", data=traj_target_oris_from_imu[:, 1:])
-        gyro_bias = f.create_dataset("gyro_bias", data=b_g)
-        accel_bias = f.create_dataset("accel_bias", data=b_a)
-
-    print(f"数据保存到 {out_fn}")
-    # 如果需要保存为文本文件
-    if save_txt:
-        txt_path = os.path.join(out_dir, "stamped_groundtruth_imu.txt")
-        np.savetxt(
-            txt_path, gt_traj_mode[:, :8], fmt="%.6f",
-            header="ts x y z qx qy qz qw"
-        )
-        print(f"数据保存到 {txt_path}")
+        if save_txt:
+            txt_path = os.path.join(out_dir, "stamped_groundtruth_imu.txt")
+            np.savetxt(
+                txt_path, gt_traj_sub[:, :8], fmt="%.6f",
+                header="ts x y z qx qy qz qw"
+            )
+            print(f"[{name}] groundtruth is saved to {txt_path}")
+        prev_idx = end_idx
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="处理数据集并生成 HDF5 数据")
-    parser.add_argument("--config", type=str, required=True, help="配置文件路径（YAML）")
-    parser.add_argument("--save_txt", action="store_true", help="是否保存为文本文件", default=True)
+    parser = argparse.ArgumentParser(description="prepare dataset to HDF5 data")
+    parser.add_argument("--config", type=str, required=True, help="path to config file")
+    parser.add_argument("--save_txt", action="store_true", help="if save txt file", default=True)
     args = parser.parse_args()
 
     config = ConfigFactory.parse_file(args.config)
 
-    for split in ['train', 'val', 'test']:
-        split_config = config.get(split, {})
-        if not split_config:
-            continue
+    split_config = config.get('data_pre', {})
 
-        mode = split_config.get("mode", split)
-        for dataset in split_config["data_list"]:
-            dataset_dir = dataset["data_root"]
-            for seq_name in dataset["data_drive"]:
-                print(f"处理 {mode.upper()} 数据集: {seq_name}")
-                process_sequence(
-                    dataset_dir=dataset_dir,
-                    seq_name=seq_name,
-                    mode=mode,
-                    save_txt=args.save_txt
-                )
+    for dataset in split_config["data_list"]:
+        dataset_dir = dataset["data_root"]
+        proportion = tuple(map(float, dataset["data_proportion"]))
+        for seq_name in dataset["data_drive"]:
+            print(f"prepare data: {seq_name}")
+            process_sequence(
+                dataset_dir=dataset_dir,
+                seq_name=seq_name,
+                save_txt=args.save_txt,
+                split_ratios=proportion
+            )
 

@@ -23,10 +23,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     # ------------------ dataset -----------------
-    # parser.add_argument("--root_dir", type=str, help="Path to data directory")
-    # parser.add_argument("--train_list", type=str, default="train.txt", help="In folder root_dir.")
-    # parser.add_argument("--val_list", type=str, default="val.txt", help="In folder root_dir.")
-    # parser.add_argument("--test_list", type=str, default="test.txt", help="In folder root_dir.")
     parser.add_argument("--data_config", type=str, help="Path to data config")
     parser.add_argument("--out_dir", type=str, help="Path to result directory")
     parser.add_argument("--dataset", type=str)
@@ -34,12 +30,12 @@ if __name__ == "__main__":
     parser.add_argument("--continue_from", type=str, default=None)
 
     # ------------------ architecture and learning params -----------------
-    parser.add_argument("--lr", type=float, default=1e-04)
+    parser.add_argument("--lr", type=float, default=3e-04)
     parser.add_argument("--batch_size", type=int, default=128)
     parser.add_argument("--epochs", type=int, default=50, help="max num epochs")
     parser.add_argument("--save_interval", type=int, default=10, help="save model every n epochs")
     parser.add_argument("--cpu", action="store_true")
-    parser.add_argument("--input_dim", type=int, default=9)
+    parser.add_argument("--input_dim", type=int, default=10)
     parser.add_argument("--output_dim", type=int, default=3)
     parser.add_argument("--weight_vel_err", type=float, default=1.)
     parser.add_argument("--weight_pos_err", type=float, default=1.)
@@ -49,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--switch_iter", type=int, default=40, help="switch to optimize covariance after this iter")
 
     # ------------------ data perturbation ------------------
-    add_bool_arg(parser, "perturb_orientation", default=True)
+    add_bool_arg(parser, "perturb_orientation", default=False)
     parser.add_argument(
         "--perturb_orientation_theta_range", type=float, default=5.0
     )  # degrees
@@ -70,10 +66,7 @@ if __name__ == "__main__":
     # ----- plotting and evaluation -----
     add_bool_arg(parser, "save_plots", default=False)
     add_bool_arg(parser, "show_plots", default=False)
-
-    # ------ net debias ---------
-    add_bool_arg(parser, "debias_accel", default=False)
-    parser.add_argument("--debias_model_path", type=str, default="results/debias/checkpoints/checkpoint_1640.pt")
+    add_bool_arg(parser, "visualize_net", default=False)
 
     args = parser.parse_args()
 

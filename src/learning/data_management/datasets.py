@@ -19,6 +19,7 @@ import numpy as np
 from torch.utils.data import Dataset
 
 import learning.utils.pose as pose
+import pypose
 
 
 class CompiledSequence(ABC):
@@ -70,6 +71,8 @@ class ModelSequence(CompiledSequence):
             accel_raw = np.copy(f["accel_raw"])
             accel_calib = np.copy(f["accel_calib"])
             traj_target = np.copy(f["traj_target"])
+            throttle = np.copy(f["throttle"])
+            rotor_spd = np.copy(f["rotor_spd"])
 
         #[NOTE] rotate to world frame (keep for future use)
         # w_gyro_calib = np.array([pose.xyzwQuatToMat(T_wi[3:]) @ w_i for T_wi, w_i in zip(traj_target, gyro_calib)])
@@ -79,10 +82,8 @@ class ModelSequence(CompiledSequence):
         self.gyro_raw = gyro_raw
         self.accel_raw = accel_raw
 
-        # TODO: modify network input to euler angle and accel in i(b) frame
-        ypr = np.array([pose.fromQuatToEulerAng(targ[3:7]) for targ in traj_target]) / 180.0 * np.pi
-        self.feat = np.concatenate([ypr, accel_calib, gyro_calib], axis=1)
-        # self.feat = np.concatenate([ypr, accel_calib], axis=1)
+        atti = np.array([pose.xyzwQuatToMat(targ[3:7]).reshape(9)[:6] for targ in traj_target])
+        self.feat = np.concatenate([accel_calib, gyro_calib, rotor_spd, atti], axis=1)
         for i in range(traj_target.shape[0]):
             traj_target[i, 7:10] = pose.xyzwQuatToMat(traj_target[i, 3:7]).T @ traj_target[i,7:10]
         self.traj_target = traj_target
@@ -131,8 +132,6 @@ class ModelEurocDataset(Dataset):
         # self.thrusts = []
         for i in range(len(data_list)):
             seq = ModelSequence(data_list[i], **kwargs)
-            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
-            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
             feat = seq.get_feature()
             targ = seq.get_target()
             self.features.append(feat)
@@ -141,7 +140,7 @@ class ModelEurocDataset(Dataset):
             self.index_map += [
                 [i, j]
                 for j in range(
-                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    int(self.window_size * self.sampling_factor),
                     N,
                     self.window_shift_size) 
                 ]
@@ -167,7 +166,7 @@ class ModelEurocDataset(Dataset):
 
         feat = self.features[seq_id][indices]
 
-       # target velocity ([NOTE] only x, y)
+       # target velocity
         targ = self.targets[seq_id][idxe, 7:10]
 
         # auxiliary variables
@@ -422,8 +421,7 @@ class ModelOur2Dataset(Dataset):
         # self.thrusts = []
         for i in range(len(data_list)):
             seq = ModelSequence(data_list[i], **kwargs)
-            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
-            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
+
             feat = seq.get_feature()
             targ = seq.get_target()
             self.features.append(feat)
@@ -432,7 +430,7 @@ class ModelOur2Dataset(Dataset):
             self.index_map += [
                 [i, j]
                 for j in range(
-                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    int(self.window_size * self.sampling_factor), 
                     N,
                     self.window_shift_size) 
                 ]
@@ -458,7 +456,7 @@ class ModelOur2Dataset(Dataset):
 
         feat = self.features[seq_id][indices]
 
-       # target velocity ([NOTE] only x, y)
+       # target velocity
         targ = self.targets[seq_id][idxe, 7:10]
 
         # auxiliary variables

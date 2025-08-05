@@ -28,6 +28,7 @@ from learning.network.losses import get_error_and_loss, get_loss
 from learning.network.model_factory import get_model
 from learning.utils.argparse_utils import arg_conversion
 from learning.utils.logging import logging
+from learning.utils.visualize_utils import *
 
 from pyhocon import ConfigFactory
 
@@ -38,8 +39,6 @@ def get_datalist(config):
         drives = entry["data_drive"]
         for drive in drives:
             data_list.append(os.path.join(root, drive, "processed_data", config["mode"]))
-    # with open(list_path) as f:
-    #     data_list = [s.strip() for s in f.readlines() if (len(s.strip()) > 0 and not s.startswith("#"))]
     return data_list
 
 
@@ -47,30 +46,22 @@ def torch_to_numpy(torch_arr):
     return torch_arr.cpu().detach().numpy()
 
 
-def get_inference(learn_configs, network, data_loader, device, epoch, debias_net=None):
+def get_inference(learn_configs, network, data_loader, device, epoch):
     """
     Get network status
     """
     errors_all, losses_all, preds_cov_all = [], [], []
     
     network.eval()
-    if debias_net:
-        debias_net.eval()
 
     for _, (feat, targ, ts, gyro, accel) in enumerate(data_loader):
-        # feat_i = [[feat_ypr], [feat_accel]]
-        # dims = [batch size, 6, window size]
+        # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
+        # dims = [batch size, 16, window size]
         # targ = [v]
         # dims = [batch size, 3]
 
         feat = feat.to(device)
         targ = targ.to(device)
-        # 预处理加速度数据
-        if debias_net:
-            with torch.no_grad():
-                accel_data = feat[:, 3:6, :]  # 取出加速度数据
-                accel_debiased = accel_data + debias_net(accel_data).unsqueeze(2).repeat(1,1, accel_data.shape[2])  # 通过去偏网络
-                feat[:, 3:6, :] = accel_debiased  # 替换原来的加速度数据
 
         # get network prediction
         pred, pred_cov = network(feat)
@@ -100,7 +91,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch, debias_net
     return attr_dict
 
 
-def run_train(learn_configs, network, train_loader, device, optimizer, epoch, debias_net=None):
+def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
     """
     Train network for one epoch
     """
@@ -108,26 +99,14 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch, de
     # errors_all, losses_all = [], []
 
     network.train()
-    # if learn_configs["switch_iter"] is not None and epoch == learn_configs["switch_iter"]:
-    #     for p in network.linear2.parameters():
-    #         p.requires_grad = True
-
-    if debias_net:
-        debias_net.eval()
 
     for _, (feat, targ, ts, gyro, accel) in enumerate(train_loader):
-        # feat_i = [[feat_ypr], [feat_accel]]
-        # dims = [batch size, 6, window size]
+        # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
+        # dims = [batch size, 16, window size]
         # targ = [v]
         # dims = [batch size, 3]
         feat = feat.to(device)
         targ = targ.to(device)
-        # 预处理加速度数据
-        if debias_net:
-            with torch.no_grad():
-                accel_data = feat[:, 3:6, :]  # 取出加速度数据
-                accel_debiased = accel_data + debias_net(accel_data).unsqueeze(2).repeat(1,1, accel_data.shape[2])  # 通过去偏网络
-                feat[:, 3:6, :] = accel_debiased  # 替换原来的加速度数据
 
         optimizer.zero_grad()
 
@@ -195,13 +174,9 @@ def train(args):
     try:
         if args.data_config is None:
             raise ValueError("data_config must be specified.")
-        # 读取 config 文件（你可以用一个新的参数 --data_config 指定路径）
+
         conf = ConfigFactory.parse_file(args.data_config)
 
-        # if args.root_dir is None:
-        #     raise ValueError("root_dir must be specified.")
-        # if args.train_list is None:
-        #     raise ValueError("train_list must be specified.")
         if args.dataset is None:
             raise ValueError("dataset must be specified.")
         args.out_dir = os.path.join(args.out_dir, args.dataset)
@@ -221,15 +196,14 @@ def train(args):
             logging.info(f"Training output writes to {args.out_dir}")
         else:
             raise ValueError("out_dir must be specified.")
-        # 提取 train 配置
+
         train_config = conf["train"]
         train_list = get_datalist(train_config)
-        # 提取 val 配置
+
         run_validation = True
         val_config = conf["val"]
         val_list = get_datalist(val_config)
-        # if args.val_list is None:
-        #     logging.warning("val_list != specified.")
+
         if args.continue_from != None:
             if os.path.exists(args.continue_from):
                 logging.info(
@@ -263,38 +237,18 @@ def train(args):
     )    
     input_dim = args.input_dim
     output_dim = args.output_dim
-    network = get_model(input_dim, output_dim).to(
+    network = get_model(input_dim, output_dim, data_window_config["window_size"]).to(
         device
     )
-    # # 冻结协方差学习的权重
-    # for p in network.linear2.parameters():
-    #     p.requires_grad = False
 
     n_params = network.get_num_params()
     params = network.parameters()
     logging.info(f'TCN network loaded to device {device}')
     logging.info(f"Total number of learning parameters: {n_params}")
 
-    #TODO: add debias network
-    if args.debias_accel:
-        from debias.network.model_factory import get_model as get_debias_model
-        debias_model_path = args.debias_model_path
-        debias_checkpoint = torch.load(debias_model_path, map_location=device)
-        debias_net_config = {
-        "in_dim": (
-            100
-        )}
-        debias_net = get_debias_model("tcn", debias_net_config, 3, 3).to(device)
-        debias_net.load_state_dict(debias_checkpoint["model_state_dict"])
-        debias_net.eval()
-        logging.info(f"Model {args.debias_model_path} loaded to device {device}.")
-    else:
-        debias_net = None
-
     # Training / Validation datasets
     train_loader, val_loader = None, None
     start_t = time.time()
-    # train_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.train_list))
     try:
         train_dataset = construct_dataset(args, train_list, data_window_config)
         train_loader = DataLoader(
@@ -306,16 +260,10 @@ def train(args):
     logging.info(f"Training set loaded. Loading time: {end_t - start_t:.3f}s")
     logging.info(f"Number of train samples: {len(train_dataset)}")
 
-    # run_validation = False
-    # val_list = None
-    # if args.val_list != '':
-    #     run_validation = True
-    #     val_list = get_datalist(os.path.join(args.root_dir, args.dataset, args.val_list))
-
     trainable_params = filter(lambda p: p.requires_grad, network.parameters())
     optimizer = torch.optim.Adam(trainable_params, args.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.1, patience=5, verbose=True, eps=1e-5
+        optimizer, factor=0.1, patience=5, eps=1e-5
     )
     logging.info(f"Optimizer: {optimizer}, Scheduler: {scheduler}")
 
@@ -344,7 +292,7 @@ def train(args):
     summary_writer.add_text("info", f"total_param: {n_params}")
 
     logging.info(f"-------------- Init, Epoch {start_epoch} --------------")
-    attr_dict = get_inference(net_config, network, train_loader, device, start_epoch, debias_net)
+    attr_dict = get_inference(net_config, network, train_loader, device, start_epoch)
     write_summary(summary_writer, attr_dict, start_epoch, optimizer, "train")
     best_loss = np.mean(attr_dict["losses"])
     # run first validation of the full validation set
@@ -358,7 +306,7 @@ def train(args):
         logging.info("Validation set loaded.")
         logging.info(f"Number of val samples: {len(val_dataset)}")
 
-        val_dict = get_inference(net_config, network, val_loader, device, start_epoch, debias_net)
+        val_dict = get_inference(net_config, network, val_loader, device, start_epoch)
         write_summary(summary_writer, val_dict, start_epoch, optimizer, "val")
         best_loss = np.mean(val_dict["losses"])
 
@@ -371,6 +319,7 @@ def train(args):
     ##############################################
     ############ actual training loop ############
     ##############################################
+    visualize_path = os.path.join(args.out_dir, "visualize", timestamp)
     for epoch in range(start_epoch + 1, args.epochs + 1):
         signal.signal(
             signal.SIGINT, partial(stop_signal_handler, args, epoch, network, optimizer)
@@ -388,22 +337,11 @@ def train(args):
         logging.info(f"time usage: {end_t - start_t:.3f}s")
 
         if run_validation:
-            # run validation on a random sequence in the validation dataset
-            # if not args.dataset == 'Blackbird':
-            #     val_sample = np.random.randint(0, len(val_list))
-            #     val_seq = val_list[val_sample]
-            #     logging.info("Running validation on %s" % val_seq)
-            #     try:
-            #         val_dataset = construct_dataset(args, [val_seq], data_window_config, mode="val")
-            #         val_loader = DataLoader(val_dataset, batch_size=128, shuffle=True)  # , num_workers=16)
-            #     except OSError as e:
-            #         logging.error(e)
-            #         return
-
-            val_attr_dict = get_inference(net_config, network, val_loader, device, epoch, debias_net)
+            val_attr_dict = get_inference(net_config, network, val_loader, device, epoch)
             write_summary(summary_writer, val_attr_dict, epoch, optimizer, "val")
             current_loss = np.mean(val_attr_dict["losses"])
-
+            if epoch % 5 == 0 and args.visualize_net:
+                visualize_net(network, visualize_path, epoch)
             # scheduler.step(current_loss)
 
             if current_loss < best_loss:
@@ -412,7 +350,7 @@ def train(args):
             if epoch % args.save_interval == 0:
                 save_model(args, epoch, network, optimizer)
         else:
-            attr_dict = get_inference(net_config, network, train_loader, device, epoch, debias_net)
+            attr_dict = get_inference(net_config, network, train_loader, device, epoch)
             current_loss = np.mean(attr_dict["losses"])
             if current_loss < best_loss:
                 best_loss = current_loss

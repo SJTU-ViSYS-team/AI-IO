@@ -506,11 +506,15 @@ class ImuMSCKF:
         # symmetrize R
         R = 0.5 * (R + R.T)
         R[R < 1e-10] = 0
-        R = R[:2, :2]
+        # R = R[:2, :2]
 
         # compute prediction
         # pred = self.state.si_ps[end_idx] - self.state.si_ps[begin_idx]
         pred = self.state.si_Rs[end_idx].T @ self.state.si_vs[end_idx]
+
+        # meas = self.state.si_Rs[end_idx] @ meas
+        # R = self.state.si_Rs[end_idx] @ R @ self.state.si_Rs[end_idx].T
+        # pred = self.state.si_vs[end_idx]
 
         assert begin_idx < end_idx, "begin_idx is larger than end_idx!"
         assert (
@@ -519,7 +523,8 @@ class ImuMSCKF:
         H = np.zeros((3, 15 + 9 * self.state.N))
         H[:, (9 * end_idx) : (9 * end_idx + 3)] = -hat(pred)
         H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = self.state.si_Rs[end_idx].T
-        H = H[:2, :]
+        # H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = np.ones((3, 3))
+        # H = H[:2, :]
 
         # pred = pred[:2,:]
         assert (
@@ -547,7 +552,7 @@ class ImuMSCKF:
                 self.last_success_mahalanobis = self.state.s_timestamp_us
 
         innovation = meas - pred
-        innovation = innovation[:2]
+        # innovation = innovation[:2]
         
         self.meas = meas
         self.pred = pred

@@ -193,11 +193,11 @@ class FilterManager:
         for i in progressbar.progressbar(range(n_data), redirect_stdout=True):
         # for i in range(n_data):
             # obtain next raw IMU and thrust measurement from data loader
-            ts, acc_raw, gyr_raw = self.input.get_datai(i, False)
+            ts, acc_raw, gyr_raw, rotor_spd = self.input.get_datai(i, False)
             t_us = from_sec_to_usec(ts)
 
             if self.runner.filter.initialized:
-                did_update = self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw)
+                did_update = self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw, rotor_spd)
                 self.add_data_to_be_logged(
                     ts,
                     self.runner.last_acc,

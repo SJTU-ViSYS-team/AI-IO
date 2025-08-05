@@ -50,9 +50,10 @@ class NetInputBuffer:
         self.net_t_us = np.array([])
         self.net_accl = np.array([])  # mass normalized force
         self.net_gyr = np.array([])
+        self.net_rotor = np.array([])
 
     def add_data_interpolated(
-        self, last_t_us, t_us, last_gyr, gyr, last_accl, accl, requested_interpolated_t_us
+        self, last_t_us, t_us, last_gyr, gyr, last_accl, accl, last_rotor, rotor, requested_interpolated_t_us
     ):
         assert isinstance(last_t_us, int)
         assert isinstance(t_us, int)
@@ -60,6 +61,7 @@ class NetInputBuffer:
         if last_t_us < 0:
             accl_interp = accl.T
             gyr_interp = gyr.T
+            rotor_interp = rotor.T
         else:
             try:
                 accl_interp = interp1d(
@@ -68,14 +70,17 @@ class NetInputBuffer:
                 gyr_interp = interp1d(
                     np.array([last_t_us, t_us], dtype=np.uint64).T,
                     np.concatenate([last_gyr.T, gyr.T]), axis=0)(requested_interpolated_t_us)
+                rotor_interp = interp1d(
+                    np.array([last_t_us, t_us], dtype=np.uint64).T,
+                    np.concatenate([last_rotor.T, rotor.T]), axis=0)(requested_interpolated_t_us)
             except ValueError as e:
                 print(
                     f"Trying to do interpolation at {requested_interpolated_t_us} between {last_t_us} and {t_us}"
                 )
                 raise e
-        self._add_data(requested_interpolated_t_us, accl_interp, gyr_interp)
+        self._add_data(requested_interpolated_t_us, accl_interp, gyr_interp, rotor_interp)
 
-    def _add_data(self, t_us, accl, gyr):
+    def _add_data(self, t_us, accl, gyr, rotor):
         assert isinstance(t_us, int)
         if len(self.net_t_us) > 0:
             assert (
@@ -85,13 +90,15 @@ class NetInputBuffer:
         self.net_t_us = np.append(self.net_t_us, t_us)
         self.net_accl = np.append(self.net_accl, accl).reshape(-1, 3)
         self.net_gyr = np.append(self.net_gyr, gyr).reshape(-1, 3)
+        self.net_rotor = np.append(self.net_rotor, rotor).reshape(-1, 4)
 
     # get network data by input size, extract from the latest
     def get_last_k_data(self, size):
         net_accl = self.net_accl[-size:, :]
         net_gyr = self.net_gyr[-size:, :]
+        net_rotor = self.net_rotor[-size:, :]
         net_t_us = self.net_t_us[-size:]
-        return net_accl, net_gyr, net_t_us
+        return net_accl, net_gyr, net_rotor, net_t_us
 
     # get network data from beginning and end timestamps
     def get_data_from_to(self, t_begin_us: int, t_us_end: int):
@@ -102,8 +109,9 @@ class NetInputBuffer:
         end_idx = np.where(self.net_t_us == t_us_end)[0][0]
         net_accl = self.net_accl[begin_idx : end_idx + 1, :]
         net_gyr = self.net_gyr[begin_idx : end_idx + 1, :]
+        net_rotor = self.net_rotor[begin_idx : end_idx + 1, :]
         net_t_us = self.net_t_us[begin_idx : end_idx + 1]
-        return net_accl, net_gyr, net_t_us
+        return net_accl, net_gyr, net_rotor, net_t_us
 
     def throw_data_before(self, t_begin_us: int):
         """ throw away data with timestamp before ts_begin
@@ -112,6 +120,7 @@ class NetInputBuffer:
         begin_idx = np.where(self.net_t_us == t_begin_us)[0][0]
         self.net_accl = self.net_accl[begin_idx:, :]
         self.net_gyr = self.net_gyr[begin_idx:, :]
+        self.net_rotor = self.net_rotor[begin_idx:, :]
         self.net_t_us = self.net_t_us[begin_idx:]
 
     def total_net_data(self):

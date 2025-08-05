@@ -48,6 +48,8 @@ class DataIO:
             gt_traj = np.copy(f["traj_target"])
             gyro_bias = np.copy(f["gyro_bias"])
             accel_bias = np.copy(f["accel_bias"])
+            throttle = np.copy(f["throttle"])
+            rotor_spd = np.copy(f["rotor_spd"])
 
             # # for DIDO data
             # gyro_raw = np.copy(f["gyr"])
@@ -71,6 +73,7 @@ class DataIO:
         self.dataset_size = self.ts.shape[0]
         self.gyro_bias = gyro_bias
         self.accel_bias = accel_bias
+        self.rotor_spd = rotor_spd
         self.gt_ts = np.round(ts, 5)
         self.gt_p = gt_traj[:, 0:3]
         self.gt_q = gt_traj[:, 3:7]
@@ -87,12 +90,13 @@ class DataIO:
         ts = self.ts[idx]
         acc = self.accel_raw[idx].reshape((3, 1))
         gyr = self.gyro_raw[idx].reshape((3, 1))
+        rotor = self.rotor_spd[idx].reshape((4,1))
         if get_thrust:
             assert self.accel_raw.shape[0] == self.thrust.shape[0]
             thr = self.thrust[idx].reshape((3, 1))
             return ts, acc, gyr, thr
         else:
-            return ts, acc, gyr
+            return ts, acc, gyr, rotor
 
     def get_imu_calibration(self):
         imu_calib = {}
