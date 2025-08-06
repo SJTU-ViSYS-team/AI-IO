@@ -51,7 +51,8 @@
                 "--out_dir=results",
                 "--dataset=our2",
                 "--checkpoint_fn=checkpoint_40.pt", //
-                "--model_param_fn=model_net_parameters.json"
+                "--model_param_fn=model_net_parameters.json",
+                // "--use_gt_atti"
             ]
         },
         {

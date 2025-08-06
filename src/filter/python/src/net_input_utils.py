@@ -13,6 +13,7 @@ Reference: https://github.com/CathIAS/TLIO/blob/master/src/tracker/imu_buffer.py
 
 import numpy as np
 from scipy.interpolate import interp1d
+from scipy.spatial.transform import Slerp, Rotation
 
 
 class ImuCalib:
@@ -51,9 +52,10 @@ class NetInputBuffer:
         self.net_accl = np.array([])  # mass normalized force
         self.net_gyr = np.array([])
         self.net_rotor = np.array([])
+        self.net_quat = np.array([])
 
     def add_data_interpolated(
-        self, last_t_us, t_us, last_gyr, gyr, last_accl, accl, last_rotor, rotor, requested_interpolated_t_us
+        self, last_t_us, t_us, last_gyr, gyr, last_accl, accl, last_rotor, rotor, last_quat, quat, requested_interpolated_t_us
     ):
         assert isinstance(last_t_us, int)
         assert isinstance(t_us, int)
@@ -62,6 +64,7 @@ class NetInputBuffer:
             accl_interp = accl.T
             gyr_interp = gyr.T
             rotor_interp = rotor.T
+            quat_interp = quat.T
         else:
             try:
                 accl_interp = interp1d(
@@ -73,14 +76,17 @@ class NetInputBuffer:
                 rotor_interp = interp1d(
                     np.array([last_t_us, t_us], dtype=np.uint64).T,
                     np.concatenate([last_rotor.T, rotor.T]), axis=0)(requested_interpolated_t_us)
+                quat_interp = Slerp(
+                    np.array([last_t_us, t_us], dtype=np.uint64).T,
+                    Rotation.from_quat(np.concatenate([last_quat.T, quat.T])))(requested_interpolated_t_us).as_quat()
             except ValueError as e:
                 print(
                     f"Trying to do interpolation at {requested_interpolated_t_us} between {last_t_us} and {t_us}"
                 )
                 raise e
-        self._add_data(requested_interpolated_t_us, accl_interp, gyr_interp, rotor_interp)
+        self._add_data(requested_interpolated_t_us, accl_interp, gyr_interp, rotor_interp, quat_interp)
 
-    def _add_data(self, t_us, accl, gyr, rotor):
+    def _add_data(self, t_us, accl, gyr, rotor, quat):
         assert isinstance(t_us, int)
         if len(self.net_t_us) > 0:
             assert (
@@ -91,6 +97,7 @@ class NetInputBuffer:
         self.net_accl = np.append(self.net_accl, accl).reshape(-1, 3)
         self.net_gyr = np.append(self.net_gyr, gyr).reshape(-1, 3)
         self.net_rotor = np.append(self.net_rotor, rotor).reshape(-1, 4)
+        self.net_quat = np.append(self.net_quat, quat).reshape(-1, 4)
 
     # get network data by input size, extract from the latest
     def get_last_k_data(self, size):
@@ -110,8 +117,9 @@ class NetInputBuffer:
         net_accl = self.net_accl[begin_idx : end_idx + 1, :]
         net_gyr = self.net_gyr[begin_idx : end_idx + 1, :]
         net_rotor = self.net_rotor[begin_idx : end_idx + 1, :]
+        net_quat = self.net_quat[begin_idx : end_idx + 1, :]
         net_t_us = self.net_t_us[begin_idx : end_idx + 1]
-        return net_accl, net_gyr, net_rotor, net_t_us
+        return net_accl, net_gyr, net_rotor, net_quat, net_t_us
 
     def throw_data_before(self, t_begin_us: int):
         """ throw away data with timestamp before ts_begin

@@ -91,12 +91,13 @@ class DataIO:
         acc = self.accel_raw[idx].reshape((3, 1))
         gyr = self.gyro_raw[idx].reshape((3, 1))
         rotor = self.rotor_spd[idx].reshape((4,1))
+        quat = self.gt_q[idx].reshape((4,1))
         if get_thrust:
             assert self.accel_raw.shape[0] == self.thrust.shape[0]
             thr = self.thrust[idx].reshape((3, 1))
-            return ts, acc, gyr, thr
+            return ts, acc, gyr, thr, quat
         else:
-            return ts, acc, gyr, rotor
+            return ts, acc, gyr, rotor, quat
 
     def get_imu_calibration(self):
         imu_calib = {}

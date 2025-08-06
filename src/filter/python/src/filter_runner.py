@@ -109,9 +109,11 @@ class FilterRunner:
         # keep track of past timestamp and measurement
         self.last_t_us, self.last_acc, self.last_gyr, self.last_thrust = -1, None, None, None
         self.last_rotor = None
+        self.last_quat = None
         self.next_interp_t_us = None
         self.next_aug_t_us = None
         self.has_done_first_update = False
+        self.use_gt_atti = filter_tuning.use_gt_atti
 
     # Note, imu meas for the net are calibrated with offline calibration.
     @jit(forceobj=True, parallel=False, cache=False)
@@ -121,13 +123,14 @@ class FilterRunner:
         net_ts_end = t_end_us - self.dt_interp_us
 
         # net_fn are either accel in imu frame or thrusts in imu frame
-        net_accl, net_gyr, net_rotor, net_t_us = self.inputs_buffer.get_data_from_to(
+        net_accl, net_gyr, net_rotor, net_quat, net_t_us = self.inputs_buffer.get_data_from_to(
             net_ts_begin, net_ts_end
         )
 
         assert net_gyr.shape[0] == self.net_input_size
         assert net_accl.shape[0] == self.net_input_size
         assert net_rotor.shape[0] == self.net_input_size
+        assert net_quat.shape[0] == self.net_input_size
         # get data from filter
         R_oldest_state_wfb, _, _ = self.filter.get_past_state(t_oldest_state_us)  # 3 x 3
 
@@ -150,7 +153,15 @@ class FilterRunner:
             R_oldest_state_wfb @ Rs_bofbi[oldest_state_idx_in_net, :, :].T
         )  # [3 x 3]
         Rs_net_wfb = np.einsum("ip,tpj->tij", R_bofboldstate, Rs_bofbi)
-        atti = Rs_net_wfb.reshape(-1, 9)[:, :6]
+        if self.use_gt_atti:
+            atti = np.zeros((net_quat.shape[0], 6))
+            for i in range(net_quat.shape[0]):
+                R = pose.xyzwQuatToMat(net_quat[i])  # (3, 3)
+                R_flat = R.reshape(-1)  # flatten to 9
+                for j in range(6):
+                    atti[i, j] = R_flat[j]
+        else:
+            atti = Rs_net_wfb.reshape(-1, 9)[:, :6]
         # ypr = np.array([pose.fromRotMatToEulerAng(R) for R in Rs_net_wfb])
         net_accl_w = np.einsum("tij,tj->ti", Rs_net_wfb, net_accl)  # N x 3
         net_gyr_w = np.einsum("tij,tj->ti", Rs_net_wfb, net_gyr)  # N x 3
@@ -158,9 +169,9 @@ class FilterRunner:
 
         return atti, net_accl, net_gyr, net_rotor, net_t_s
 
-    def on_imu_measurement(self, t_us, gyr_raw, acc_raw, rotor_spd, thrust=None):
+    def on_imu_measurement(self, t_us, gyr_raw, acc_raw, rotor_spd, gt_quat, thrust=None):
         if self.filter.initialized:
-            return self._on_imu_measurement_after_init(t_us, gyr_raw, acc_raw, rotor_spd, thrust)
+            return self._on_imu_measurement_after_init(t_us, gyr_raw, acc_raw, rotor_spd, gt_quat, thrust)
         else:
             logging.info(f"Initializing filter at time {t_us} [us]")
             if self.icalib:
@@ -186,10 +197,11 @@ class FilterRunner:
                 acc_biascpst,
                 gyr_biascpst,
             )
+            self.last_quat = gt_quat
             self.last_rotor = rotor_spd
             return False
 
-    def _on_imu_measurement_after_init(self, t_us, gyr_raw, acc_raw, rotor_spd, thrust=None):
+    def _on_imu_measurement_after_init(self, t_us, gyr_raw, acc_raw, rotor_spd, gt_quat, thrust=None):
         """
         For new IMU measurement, after the filter has been initialized
         """
@@ -227,7 +239,7 @@ class FilterRunner:
 
         # Inputs interpolation and data saving for network
         if do_interpolation_of_imu:
-            self._add_interpolated_inputs_to_buffer(acc_biascpst, gyr_biascpst, rotor_spd, t_us)
+            self._add_interpolated_inputs_to_buffer(acc_biascpst, gyr_biascpst, rotor_spd, gt_quat, t_us)
                 
         self.filter.propagate(
             acc_raw, gyr_raw, t_us, t_augmentation_us=t_augmentation_us
@@ -242,6 +254,7 @@ class FilterRunner:
         # set last value memory to the current one
         self.last_t_us, self.last_acc, self.last_gyr = t_us, acc_biascpst, gyr_biascpst
         self.last_rotor = rotor_spd
+        self.last_quat = gt_quat
         self.last_thrust = thrust
 
         return did_update
@@ -287,9 +300,8 @@ class FilterRunner:
         self.inputs_buffer.throw_data_before(t_begin_us)
         return success
 
-    def _add_interpolated_inputs_to_buffer(self, accl_biascpst, gyr_biascpst, rotor_spd, t_us):
-        # print('t_us:',t_us)
-        # print('next_interp_t_us:',self.next_interp_t_us)
+    def _add_interpolated_inputs_to_buffer(self, accl_biascpst, gyr_biascpst, rotor_spd, gt_quat, t_us):
+
         self.inputs_buffer.add_data_interpolated(
             self.last_t_us,
             t_us,
@@ -299,21 +311,23 @@ class FilterRunner:
             accl_biascpst,
             self.last_rotor,
             rotor_spd,
+            self.last_quat,
+            gt_quat,
             self.next_interp_t_us,
         )
         self.next_interp_t_us += self.dt_interp_us
-        # 如果出现t_us变化不止5ms
-        if self.next_interp_t_us<t_us:
-            self.inputs_buffer.add_data_interpolated(
-            self.last_t_us,
-            t_us,
-            self.last_gyr,
-            gyr_biascpst,
-            self.last_acc,
-            accl_biascpst,
-            self.last_rotor,
-            rotor_spd,
-            self.next_interp_t_us,
-            )
-            self.next_interp_t_us += self.dt_interp_us
+
+        # if self.next_interp_t_us<t_us:
+        #     self.inputs_buffer.add_data_interpolated(
+        #     self.last_t_us,
+        #     t_us,
+        #     self.last_gyr,
+        #     gyr_biascpst,
+        #     self.last_acc,
+        #     accl_biascpst,
+        #     self.last_rotor,
+        #     rotor_spd,
+        #     self.next_interp_t_us,
+        #     )
+        #     self.next_interp_t_us += self.dt_interp_us
 

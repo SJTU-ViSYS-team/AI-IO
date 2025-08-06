@@ -172,13 +172,27 @@ def xyzwQuatFromMat(R):
     return q_xyzw
 
 def fromRotMatToEulerAng(R):
-    # 计算俯仰角 theta
+    # pitch theta
     theta = np.arcsin(-R[2, 0])
     
-    # 计算滚转角 phi
+    # roll phi
     phi = np.arctan2(R[2, 1], R[2, 2])
     
-    # 计算偏航角 psi
+    # yaw psi
     psi = np.arctan2(R[1, 0], R[0, 0])
     
     return np.array([psi, theta, phi])
+
+def fromEulerAngToRotMat(yaw, pitch, roll):
+    """
+    Transform (yaw, pitch, roll) to rotation matrix.
+    Input: rad
+    Rotate according to z-y-x
+    """
+    R = np.array([
+        [np.cos(pitch)*np.cos(yaw), -np.cos(roll)*np.sin(yaw)+np.sin(roll)*np.sin(pitch)*np.cos(yaw), np.sin(roll)*np.sin(yaw)+np.cos(roll)*np.sin(pitch)*np.cos(yaw)],
+        [np.cos(pitch)*np.sin(yaw), np.cos(roll)*np.cos(yaw)+np.sin(roll)*np.sin(pitch)*np.sin(yaw), -np.sin(roll)*np.cos(yaw)+np.cos(roll)*np.sin(pitch)*np.sin(yaw)],
+        [-np.sin(pitch), np.sin(roll)*np.cos(pitch), np.cos(roll)*np.cos(pitch)]
+    ])
+
+    return R

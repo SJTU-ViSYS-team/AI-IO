@@ -228,8 +228,8 @@ def process_sequence(dataset_dir, seq_name, save_txt, split_ratios=(0.7, 0.15, 0
         if save_txt:
             txt_path = os.path.join(out_dir, "stamped_groundtruth_imu.txt")
             np.savetxt(
-                txt_path, gt_traj_sub[:, :8], fmt="%.6f",
-                header="ts x y z qx qy qz qw"
+                txt_path, gt_traj_sub, fmt="%.6f",
+                header="ts x y z qx qy qz qw vx vy vz"
             )
             print(f"[{name}] groundtruth is saved to {txt_path}")
         prev_idx = end_idx

@@ -65,26 +65,27 @@ if __name__ == "__main__":
         "--sigma_na", type=float, default=1e-1
     )  # accel noise  m/s^2
     filter_group.add_argument(
-        "--sigma_ng", type=float, default=1e-3
+        "--sigma_ng", type=float, default=1e-4
     )  # gyro noise  rad/s
     filter_group.add_argument(
         "--sigma_nba", type=float, default=1e-2
     )  # accel bias noise m/s^2/sqrt(s)
     filter_group.add_argument(
-        "--sigma_nbg", type=float, default=1e-4
+        "--sigma_nbg", type=float, default=1e-5
     )  # gyro bias noise rad/s/sqrt(s)
 
     filter_group.add_argument(
-        "--init_attitude_sigma", type=float, default=10.0 / 180.0 * np.pi
+        "--init_attitude_sigma", type=float, default=1.0 / 180.0 * np.pi
     )  # rad
     filter_group.add_argument(
-        "--init_yaw_sigma", type=float, default=10.0 / 180.0 * np.pi
+        "--init_yaw_sigma", type=float, default=1.0 / 180.0 * np.pi
     )  # rad
     filter_group.add_argument("--init_vel_sigma", type=float, default=1.0)  # m/s
     filter_group.add_argument("--init_pos_sigma", type=float, default=1.0)  # m
     filter_group.add_argument("--init_bg_sigma", type=float, default=1e-4)  # rad/s
     filter_group.add_argument("--init_ba_sigma", type=float, default=1e-4)  # m/s^2
     filter_group.add_argument("--g_norm", type=float, default=9.7946)
+    filter_group.add_argument("--meascov_scale", type=float, default=1.0)
 
     add_bool_arg(
         filter_group, "use_gt_atti", default=False
@@ -112,7 +113,6 @@ if __name__ == "__main__":
     filter_group.add_argument(
         "--const_cov_val_z", type=float, default=100000
     )
-    filter_group.add_argument("--meascov_scale", type=float, default=1.0)
 
     add_bool_arg(
         filter_group, "log_full_state", default=False

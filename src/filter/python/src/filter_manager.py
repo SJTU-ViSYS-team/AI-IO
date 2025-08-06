@@ -87,7 +87,8 @@ class FilterManager:
                 "const_cov_val_z": args.const_cov_val_z, # sigma^2
                 "meascov_scale": args.meascov_scale,
                 "mahalanobis_factor": args.mahalanobis_factor,
-                "mahalanobis_fail_scale": args.mahalanobis_fail_scale
+                "mahalanobis_fail_scale": args.mahalanobis_fail_scale,
+                "use_gt_atti": args.use_gt_atti
             }
         )
 
@@ -170,7 +171,7 @@ class FilterManager:
     def save_logs(self, save_as_npy):
         logging.info("Saving logs!")
         np.savetxt(self.traj_outfile, np.array(self.f_traj_logs),
-                   header="ts x y z qx qy qz qw", fmt="%.12f")
+                   header="ts x y z qx qy qz qw", fmt=["%.3f"] + ["%.12f"] * 7)
         np.savetxt(self.bias_outfile, np.array(self.f_bias_logs),
                    header="ts bg_x bg_y bg_z ba_x ba_y ba_z", fmt="%.3f")
         np.savetxt(self.vel_outfile, np.array(self.f_vel_logs),
@@ -193,11 +194,11 @@ class FilterManager:
         for i in progressbar.progressbar(range(n_data), redirect_stdout=True):
         # for i in range(n_data):
             # obtain next raw IMU and thrust measurement from data loader
-            ts, acc_raw, gyr_raw, rotor_spd = self.input.get_datai(i, False)
+            ts, acc_raw, gyr_raw, rotor_spd, gt_quat = self.input.get_datai(i, False)
             t_us = from_sec_to_usec(ts)
 
             if self.runner.filter.initialized:
-                did_update = self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw, rotor_spd)
+                did_update = self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw, rotor_spd, gt_quat)
                 self.add_data_to_be_logged(
                     ts,
                     self.runner.last_acc,
