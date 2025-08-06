@@ -1,2 +1,0 @@
-# clover
-clover/yawForward/maxSpeed5p0/test
