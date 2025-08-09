@@ -85,7 +85,7 @@ if __name__ == "__main__":
     filter_group.add_argument("--init_bg_sigma", type=float, default=1e-4)  # rad/s
     filter_group.add_argument("--init_ba_sigma", type=float, default=1e-4)  # m/s^2
     filter_group.add_argument("--g_norm", type=float, default=9.7946)
-    filter_group.add_argument("--meascov_scale", type=float, default=1.0)
+    filter_group.add_argument("--meascov_scale", type=float, default=10.0)
 
     add_bool_arg(
         filter_group, "use_gt_atti", default=False

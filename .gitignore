@@ -1,7 +1,5 @@
 img/
 results/
-datasets/DIDO
-datasets/Euroc
-datasets/Simulation
-debias/
+datasets/
 __pycache__/
+model.onnx

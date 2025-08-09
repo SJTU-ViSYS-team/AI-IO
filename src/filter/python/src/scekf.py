@@ -521,7 +521,7 @@ class ImuMSCKF:
             end_idx < self.state.N
         ), "end_idx is larger than the number of past states in the filter!"
         H = np.zeros((3, 15 + 9 * self.state.N))
-        H[:, (9 * end_idx) : (9 * end_idx + 3)] = -hat(pred)
+        H[:, (9 * end_idx) : (9 * end_idx + 3)] = hat(pred)
         H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = self.state.si_Rs[end_idx].T
         # H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = np.ones((3, 3))
         # H = H[:2, :]

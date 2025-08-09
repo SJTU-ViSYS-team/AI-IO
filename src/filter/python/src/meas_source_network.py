@@ -56,7 +56,7 @@ class MeasSourceNetwork:
         # TODO: learn covariance
         # meas_cov = np.eye(3)
         vb_cov_learned[vb_cov_learned < -4] = -4  # exp(2 * -4) =~ 0.00034
-        meas_cov = DiagonalParam.vec2Cov(vb_cov_learned).cpu().detach().numpy()[0, :, :] *10
+        meas_cov = DiagonalParam.vec2Cov(vb_cov_learned).cpu().detach().numpy()[0, :, :]
 
         return meas, meas_cov
 
