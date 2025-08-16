@@ -54,7 +54,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     
     network.eval()
 
-    for _, (feat, targ, ts, gyro, accel) in enumerate(data_loader):
+    for _, (feat, targ, gt_traj, ts, gyro, accel) in enumerate(data_loader):
         # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
         # dims = [batch size, 16, window size]
         # targ = [v]
@@ -100,7 +100,7 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
 
     network.train()
 
-    for _, (feat, targ, ts, gyro, accel) in enumerate(train_loader):
+    for _, (feat, targ, gt_traj, ts, gyro, accel) in enumerate(train_loader):
         # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
         # dims = [batch size, 16, window size]
         # targ = [v]

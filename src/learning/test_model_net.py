@@ -94,7 +94,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     
     network.eval()
 
-    for _, (feat, targ, ts, _, _) in enumerate(data_loader):
+    for _, (feat, targ, gt_traj, ts, _, _) in enumerate(data_loader):
         # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
         # dims = [batch size, 16, window size]
         # targ = [dv]

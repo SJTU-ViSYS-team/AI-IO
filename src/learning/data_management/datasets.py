@@ -99,15 +99,16 @@ class ModelSequence(CompiledSequence):
                 accel_rand = np.random.uniform(-1, 1, accel_calib.shape) * self.perturb_accel_range
                 accel_calib += accel_rand
         self.feat = np.concatenate([accel_calib, gyro_calib, rotor_spd, atti], axis=1)
+        self.targ_vb = np.zeros((traj_target.shape[0], 3))
         for i in range(traj_target.shape[0]):
-            traj_target[i, 7:10] = pose.xyzwQuatToMat(traj_target[i, 3:7]).T @ traj_target[i,7:10]
+            self.targ_vb[i, :] = pose.xyzwQuatToMat(traj_target[i, 3:7]).T @ traj_target[i,7:10]
         self.traj_target = traj_target
 
     def get_feature(self):
         return self.feat
 
     def get_target(self):
-        return self.traj_target
+        return self.targ_vb, self.traj_target
 
     # Auxiliary quantities, not used for training.
     def get_aux(self):
@@ -430,7 +431,7 @@ class ModelOur2Dataset(Dataset):
 
         # index_map = [[seq_id, index of the last datapoint in the window], ...]
         self.index_map = []
-        self.ts, self.features, self.targets = [], [], []
+        self.ts, self.features, self.targets, self.gt_traj = [], [], [], []
         self.raw_gyro_meas = []
         self.raw_accel_meas = []
         # self.thrusts = []
@@ -438,9 +439,10 @@ class ModelOur2Dataset(Dataset):
             seq = ModelSequence(data_list[i], args, **kwargs)
 
             feat = seq.get_feature()
-            targ = seq.get_target()
+            targ, traj = seq.get_target()
             self.features.append(feat)
             self.targets.append(targ)
+            self.gt_traj.append(traj)
             N = self.features[i].shape[0]
             self.index_map += [
                 [i, j]
@@ -472,7 +474,9 @@ class ModelOur2Dataset(Dataset):
         feat = self.features[seq_id][indices]
 
        # target velocity
-        targ = self.targets[seq_id][idxe, 7:10]
+        targ = self.targets[seq_id][idxe, :]
+
+        gt_traj = self.gt_traj[seq_id][indices]
 
         # auxiliary variables
         feat_ts = self.ts[seq_id][indices]
@@ -493,7 +497,7 @@ class ModelOur2Dataset(Dataset):
         #         accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
         #         feat[:, :3] += accel_rand
             
-        return feat.astype(np.float32).T, targ.astype(np.float32), \
+        return feat.astype(np.float32).T, targ.astype(np.float32), gt_traj.astype(np.float32), \
             feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
 
     def __len__(self):
