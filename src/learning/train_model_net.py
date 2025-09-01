@@ -31,6 +31,7 @@ from learning.utils.logging import logging
 from learning.utils.visualize_utils import *
 
 from pyhocon import ConfigFactory
+from tqdm import tqdm
 
 def get_datalist(config):
     data_list = []
@@ -54,17 +55,21 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     
     network.eval()
 
-    for _, (feat, targ, gt_traj, ts, gyro, accel) in enumerate(data_loader):
+    pbar = tqdm(data_loader, ncols=100)
+    for (feat, targ, gt_traj, ts, gyro, accel) in pbar:
         # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
         # dims = [batch size, 16, window size]
         # targ = [v]
         # dims = [batch size, 3]
 
+        ts = ts.to(device).to(torch.float32)
+        ts = ts - ts[:, 0:1]
         feat = feat.to(device)
         targ = targ.to(device)
+        gt_traj = gt_traj.to(device)
 
         # get network prediction
-        pred, pred_cov = network(feat)
+        pred, pred_cov = network(feat, ts)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
@@ -74,6 +79,8 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         errors_all.append(errs_norm)
         losses_all.append(torch_to_numpy(loss))
         preds_cov_all.append(torch_to_numpy(pred_cov))
+
+        pbar.set_description(f"loss: {np.mean(torch_to_numpy(loss)):.3f}, err: {np.mean(errs_norm):.3f}")
         
     # save
     preds_cov_all = np.concatenate(preds_cov_all, axis=0)
@@ -105,13 +112,16 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
         # dims = [batch size, 16, window size]
         # targ = [v]
         # dims = [batch size, 3]
+        ts = ts.to(device).to(torch.float32)
+        ts = ts - ts[:, 0:1]
         feat = feat.to(device)
         targ = targ.to(device)
+        gt_traj = gt_traj.to(device)
 
         optimizer.zero_grad()
 
         # get network prediction
-        pred, pred_cov = network(feat)
+        pred, pred_cov = network(feat, ts)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)

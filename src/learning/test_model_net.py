@@ -99,10 +99,12 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         # dims = [batch size, 16, window size]
         # targ = [dv]
         # dims = [batch size, 3]
+        ts = ts.to(device).to(torch.float32)
+        ts = ts - ts[:, 0:1]
         feat = feat.to(device)
         targ = targ.to(device)
         
-        pred, pred_cov = network(feat)
+        pred, pred_cov = network(feat, ts)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
@@ -193,6 +195,9 @@ def test(args):
     logging.info(f"Model {model_path} loaded to device {device}.")
 
     # process sequences
+    avg_loss = 0.0
+    avg_error = 0.0
+    cnt = 0
     for seq_name, data in test_list:
         logging.info(f"Processing {seq_name}...")
         try:
@@ -208,6 +213,10 @@ def test(args):
         # Print loss infos
         errs_vel = np.mean(net_attr_dict["errs"])
         loss = np.mean(net_attr_dict["losses"])
+
+        avg_loss += loss
+        avg_error += errs_vel
+        cnt += 1
         
 
         logging.info(f"Test: average vel err [m/s]: {errs_vel}")
@@ -333,6 +342,9 @@ def test(args):
 
             if args.show_plots:
                 plt.show()
+    loss = avg_loss / cnt
+    err = avg_error / cnt
+    print(f"Avg velocity prediction loss and error across test data in {args.dataset} are: ", loss, "|", err, "[m/s]")
     return
 
 def construct_dataset(args, data_list, data_window_config, mode="test"):

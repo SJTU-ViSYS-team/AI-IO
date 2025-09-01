@@ -163,6 +163,7 @@ class Tcn(nn.Module):
         )
         self.linear1 = nn.Linear(num_channels[-1], output_size)
         self.linear2 = nn.Linear(num_channels[-1], output_size)
+        self.rotor_spd_norm_layer = EmpiricalNormalization(4)
         self.init_weights()
 
     def init_weights(self):
@@ -172,7 +173,14 @@ class Tcn(nn.Module):
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def forward(self, x):
+    def forward(self, x, ts):
+        x = x[:, :-6, :]        # remove attitude information
+        start = 6
+        rotor_spd = x[:, start:start+4, :]
+        rotor_spd_squared = rotor_spd ** 2
+        self.rotor_spd_norm_layer.update(rotor_spd_squared)
+        rotor_spd_squared = self.rotor_spd_norm_layer(rotor_spd_squared)
+        x[:, start:start+4, :] = rotor_spd_squared
         x = self.tcn(x)
         pred = self.linear1(x[:, :, -1])
         pred_cov = self.linear2(x[:, :, -1])
@@ -274,7 +282,7 @@ class IMUTransformerWithModality(nn.Module):
         dim_feedforward=128,
         dropout=0.2,
         output_size=3,
-        window_size=50,
+        window_size=100,
         enabled_modalities=["acc", "gyro", "rotor_spd", "atti"],  
     ):
         super(IMUTransformerWithModality, self).__init__()
@@ -290,19 +298,23 @@ class IMUTransformerWithModality(nn.Module):
 
         if "acc" in self.enabled_modalities:
             self.modalities_fc["acc"] = nn.Linear(3, sub_dim)
+            self.modalities_fc["acc"] = nn.Conv1d(3, sub_dim, 5)
         if "gyro" in self.enabled_modalities:
             self.modalities_fc["gyro"] = nn.Linear(3, sub_dim)
+            self.modalities_fc["gyro"] = nn.Conv1d(3, sub_dim, 5)
         if "rotor_spd" in self.enabled_modalities:
             self.modalities_fc["rotor_spd"] = nn.Linear(4, sub_dim)
+            self.modalities_fc["rotor_spd"] = nn.Conv1d(4, sub_dim, 5)
         if "atti" in self.enabled_modalities:
             self.modalities_fc["atti"] = nn.Linear(6, sub_dim)
+            self.modalities_fc["atti"] = nn.Conv1d(6, sub_dim, 5)
 
-        self.pos_encoder = PositionalEncoding(d_model)
+        self.pos_encoder = PositionalEncoding(d_model, max_len=window_size)
 
-        self.acc_norm_layer = EmpiricalNormalization(3)
-        self.gyro_norm_layer = EmpiricalNormalization(3)
+        # self.acc_norm_layer = EmpiricalNormalization(3)
+        # self.gyro_norm_layer = EmpiricalNormalization(3)
         self.rotor_spd_norm_layer = EmpiricalNormalization(4)
-        # self.atti_norm_layer = EmpiricalNormalization(3)
+        # self.atti_norm_layer = EmpiricalNormalization(6)
 
         encoder_layers = nn.ModuleList([
             TransformerEncoderLayerWithAttention(
@@ -316,28 +328,6 @@ class IMUTransformerWithModality(nn.Module):
         self.transformer = nn.TransformerEncoder(encoder_layers[0], num_layers=1)  # dummy init
         self.transformer.layers = encoder_layers
 
-        # encoder_layers = nn.ModuleList([
-        #     nn.TransformerEncoderLayer(
-        #         d_model=d_model,
-        #         nhead=nhead,
-        #         dim_feedforward=dim_feedforward,
-        #         dropout=dropout,
-        #         batch_first=False
-        #     ) for _ in range(num_layers)
-        # ])
-        # self.transformer = nn.TransformerEncoder(encoder_layers[0], num_layers=1)  # dummy init
-        # self.transformer.layers = encoder_layers
-
-
-        # encoder_layer = nn.TransformerEncoderLayer(
-            # d_model=d_model,
-            # nhead=nhead,
-            # dim_feedforward=dim_feedforward,
-            # dropout=dropout,
-            # batch_first=False
-        # )
-        # self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-
         self.output_head = nn.Linear(d_model, output_size)
         self.output_cov = nn.Linear(d_model, output_size)
         self.init_weights()
@@ -349,7 +339,7 @@ class IMUTransformerWithModality(nn.Module):
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def forward(self, x):
+    def forward(self, x, ts):
         """
         x: [B, C, T]  —  acc(3), gyro(3), rotor_spd(4), quat(4)
         """
@@ -358,18 +348,18 @@ class IMUTransformerWithModality(nn.Module):
         self.activations = {}
 
         if "acc" in self.enabled_modalities:
-            acc = x[:, :3, :] # (B, C, T)
-            self.acc_norm_layer.update(acc)
-            acc = self.acc_norm_layer(acc).permute(0, 2, 1)
-            acc_f = self.modalities_fc["acc"](acc)
+            acc = x[:, :3, :].permute(0, 2, 1)
+            # self.acc_norm_layer.update(acc)
+            # acc = self.acc_norm_layer(acc).permute(0, 2, 1)
+            acc_f = self.modalities_fc["acc"](acc.permute(0, 2, 1)).permute(0, 2, 1)
             feat_list.append(acc_f)
             self.activations["acc"] = acc_f.detach().cpu()
 
         if "gyro" in self.enabled_modalities:
-            gyro = x[:, 3:6, :]
-            self.gyro_norm_layer.update(gyro)
-            gyro = self.gyro_norm_layer(gyro).permute(0, 2, 1)
-            gyro_f = self.modalities_fc["gyro"](gyro)
+            gyro = x[:, 3:6, :].permute(0, 2, 1)
+            # self.gyro_norm_layer.update(gyro)
+            # gyro = self.gyro_norm_layer(gyro).permute(0, 2, 1)
+            gyro_f = self.modalities_fc["gyro"](gyro.permute(0, 2, 1)).permute(0, 2, 1)
             feat_list.append(gyro_f)
             self.activations["gyro"] = gyro_f.detach().cpu()
 
@@ -379,7 +369,7 @@ class IMUTransformerWithModality(nn.Module):
             rotor_spd_squared = rotor_spd ** 2
             self.rotor_spd_norm_layer.update(rotor_spd_squared)
             rotor_spd_squared = self.rotor_spd_norm_layer(rotor_spd_squared).permute(0, 2, 1)
-            rotor_spd_f = self.modalities_fc["rotor_spd"](rotor_spd_squared)
+            rotor_spd_f = self.modalities_fc["rotor_spd"](rotor_spd_squared.permute(0, 2, 1)).permute(0, 2, 1)
             feat_list.append(rotor_spd_f)
             self.activations["rotor_spd"] = rotor_spd_f.detach().cpu()
 
@@ -387,7 +377,7 @@ class IMUTransformerWithModality(nn.Module):
             atti = x[:, 10:, :].permute(0, 2, 1)
             # self.atti_norm_layer.update(atti)
             # atti = self.atti_norm_layer(atti).permute(0, 2, 1)
-            atti_f = self.modalities_fc["atti"](atti)
+            atti_f = self.modalities_fc["atti"](atti.permute(0, 2, 1)).permute(0, 2, 1)
             feat_list.append(atti_f)
             self.activations["atti"] = atti_f.detach().cpu()
 

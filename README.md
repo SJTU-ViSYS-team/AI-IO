@@ -1,6 +1,6 @@
 # My New Learned Inertial Model Odometry
 
-[![Learned Inertial Model Odometry](img/intro_github.png)](https://youtu.be/DHQzaDVWXrc)
+[![Learned Inertial Model Odometry](img/realtime-overview.png)](https://youtu.be/DHQzaDVWXrc)
 
 ## Publication
 If you use this code in an academic context, please cite the following [RA-L 2023 paper](http://rpg.ifi.uzh.ch/docs/RAL2023_Cioffi.pdf).

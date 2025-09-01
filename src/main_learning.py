@@ -16,8 +16,24 @@ import learning.train_model_net as train_model_net
 import learning.test_model_net as test_model_net
 from learning.utils.argparse_utils import add_bool_arg
 
+import random
+import numpy as np
+import torch
+
+def set_seed(seed: int = 42):
+    random.seed(seed)                
+    np.random.seed(seed)             
+    torch.manual_seed(seed)          
+    torch.cuda.manual_seed(seed)     
+    torch.cuda.manual_seed_all(seed) 
+    
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    
+    print(f"Random seed set as {seed}")
 
 if __name__ == "__main__":
+    set_seed(42)
     import argparse
 
     parser = argparse.ArgumentParser()

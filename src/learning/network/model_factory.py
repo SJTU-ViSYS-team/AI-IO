@@ -16,18 +16,18 @@ from learning.network.model_tcn import Tcn, TcnGru, IMUTransformerWithModality
 def get_model(input_dim=9, output_dim=3, window_s=50):
     network = IMUTransformerWithModality(
         sub_dim=16,
-        nhead=4,
+        nhead=8,
         num_layers=2,
-        dim_feedforward=128,
+        dim_feedforward=256,
         dropout=0.2,
         output_size=3,
         window_size=window_s,
-        enabled_modalities=["acc", "gyro", "rotor_spd", "atti"],  
+        enabled_modalities=["acc", "gyro", "rotor_spd"],  
     )
     # network = Tcn(
     #     input_dim,
     #     output_dim,
-    #     [64, 64, 64, 64, 128, 128, 128],
+    #     [64, 64, 128],
     #     kernel_size=2,
     #     dropout=0.3,
     #     activation="GELU",

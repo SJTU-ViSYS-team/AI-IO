@@ -77,7 +77,7 @@ class ModelSequence(CompiledSequence):
             accel_raw = np.copy(f["accel_raw"])
             accel_calib = np.copy(f["accel_calib"])
             traj_target = np.copy(f["traj_target"])
-            throttle = np.copy(f["throttle"])
+            # throttle = np.copy(f["throttle"])
             rotor_spd = np.copy(f["rotor_spd"])
 
         #[NOTE] rotate to world frame (keep for future use)
@@ -526,7 +526,7 @@ class ModelDIDODataset(Dataset):
         self.sampling_factor = data_window_config["sampling_factor"]
         self.window_size = int(data_window_config["window_size"])
         self.window_shift_size = data_window_config["window_shift_size"]
-        self.g = np.array([0., 0., 9.8082])
+        self.g = np.array([0., 0., 9.7946])
 
         self.mode = kwargs.get("mode", "train")
         self.perturb_orientation = args.perturb_orientation
@@ -544,23 +544,23 @@ class ModelDIDODataset(Dataset):
 
         # index_map = [[seq_id, index of the last datapoint in the window], ...]
         self.index_map = []
-        self.ts, self.features, self.targets = [], [], []
+        self.ts, self.features, self.targets, self.gt_traj = [], [], [], []
         self.raw_gyro_meas = []
         self.raw_accel_meas = []
         # self.thrusts = []
         for i in range(len(data_list)):
-            seq = ModelSequence(data_list[i], **kwargs)
-            # feat = np.array([[yaw, picth, roll, ax, ay, az], ...])
-            # targ = np.array([[x, y, z, qx, qy, qz, qw], ...])
+            seq = ModelSequence(data_list[i], args, **kwargs)
+
             feat = seq.get_feature()
-            targ = seq.get_target()
+            targ, traj = seq.get_target()
             self.features.append(feat)
             self.targets.append(targ)
+            self.gt_traj.append(traj)
             N = self.features[i].shape[0]
             self.index_map += [
                 [i, j]
                 for j in range(
-                    int(self.window_size * self.sampling_factor), # 一个window内imu的数量 
+                    int(self.window_size * self.sampling_factor), 
                     N,
                     self.window_shift_size) 
                 ]
@@ -586,8 +586,10 @@ class ModelDIDODataset(Dataset):
 
         feat = self.features[seq_id][indices]
 
-       # target velocity ([NOTE] only x, y)
-        targ = self.targets[seq_id][idxe, 7:10]
+       # target velocity
+        targ = self.targets[seq_id][idxe, :]
+
+        gt_traj = self.gt_traj[seq_id][indices]
 
         # auxiliary variables
         feat_ts = self.ts[seq_id][indices]
@@ -599,15 +601,16 @@ class ModelDIDODataset(Dataset):
             raw_gyro_meas_i = self.raw_gyro_meas[seq_id][indices]
             raw_accel_meas_i = self.raw_accel_meas[seq_id][indices]
             
-        if self.mode == "train":
-            if self.perturb_orientation:
-                theta_rand = np.random.uniform(-1, 1, feat[:, :3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
-                feat[:, 0:3] += theta_rand
-            if self.perturb_accel:
-                accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
-                feat[:, 3:6] += accel_rand
+        # if self.mode == "train":
+        #     if self.perturb_orientation:
+        #         theta_rand = np.random.uniform(-1, 1, feat[:, :3].shape) * np.pi * self.perturb_orientation_theta_range / 180.0
+        #         ypr += theta_rand
+        #         feat[:, 10:] = np.array([pose.fromEulerAngToRotMat(ang[0], ang[1], ang[2]).reshape(9)[:6] for ang in ypr])
+        #     if self.perturb_accel:
+        #         accel_rand = np.random.uniform(-1, 1, feat[:, 3:6].shape) * self.perturb_accel_range
+        #         feat[:, :3] += accel_rand
             
-        return feat.astype(np.float32).T, targ.astype(np.float32), \
+        return feat.astype(np.float32).T, targ.astype(np.float32), gt_traj.astype(np.float32), \
             feat_ts, raw_gyro_meas_i.astype(np.float32).T, raw_accel_meas_i.astype(np.float32).T
 
     def __len__(self):
