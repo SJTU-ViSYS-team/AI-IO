@@ -26,10 +26,10 @@ def set_seed(seed: int = 42):
     torch.manual_seed(seed)          
     torch.cuda.manual_seed(seed)     
     torch.cuda.manual_seed_all(seed) 
-    
+
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    
+
     print(f"Random seed set as {seed}")
 
 if __name__ == "__main__":
@@ -48,20 +48,16 @@ if __name__ == "__main__":
     # ------------------ architecture and learning params -----------------
     parser.add_argument("--lr", type=float, default=3e-04)
     parser.add_argument("--batch_size", type=int, default=128)
-    parser.add_argument("--epochs", type=int, default=50, help="max num epochs")
+    parser.add_argument("--epochs", type=int, default=60, help="max num epochs")
     parser.add_argument("--save_interval", type=int, default=10, help="save model every n epochs")
     parser.add_argument("--cpu", action="store_true")
-    parser.add_argument("--input_dim", type=int, default=10)
-    parser.add_argument("--output_dim", type=int, default=3)
     parser.add_argument("--weight_vel_err", type=float, default=1.)
-    parser.add_argument("--weight_pos_err", type=float, default=1.)
     parser.add_argument("--loss_type", type=str, default="huber", help="huber,mse")
     parser.add_argument("--huber_vel_loss_delta", type=float, default=0.1, help="value is in [m/s]")
-    parser.add_argument("--huber_pos_loss_delta", type=float, default=0.5, help="value is in [m]")
-    parser.add_argument("--switch_iter", type=int, default=40, help="switch to optimize covariance after this iter")
+    parser.add_argument("--switch_iter", type=int, default=50, help="switch to optimize covariance after this iter")
 
     # ------------------ data perturbation ------------------
-    add_bool_arg(parser, "perturb_orientation", default=False)
+    add_bool_arg(parser, "perturb_orientation", default=True) # TODO: delete
     parser.add_argument(
         "--perturb_orientation_theta_range", type=float, default=5.0
     )  # degrees
@@ -80,9 +76,7 @@ if __name__ == "__main__":
                         help="shift size of the input data window")
 
     # ----- plotting and evaluation -----
-    add_bool_arg(parser, "save_plots", default=False)
-    add_bool_arg(parser, "show_plots", default=False)
-    add_bool_arg(parser, "visualize_net", default=False)
+    add_bool_arg(parser, "show_plots", default=True)
 
     args = parser.parse_args()
 

@@ -22,19 +22,19 @@ def get_datalist(list_path):
 def getImuCalib(dtset_name):
     init_calib = {}
 
-    # Blackbird
-    init_calib["Blackbird"] = {}
-    init_calib["Blackbird"]["gyro_bias"] = np.array([0.0, 0.0, 0.0])
-    init_calib["Blackbird"]["accel_bias"] = np.array([0.0, 0.0, 0.0])
-    init_calib["Blackbird"]["T_mat_gyro"] = np.eye(3)
-    init_calib["Blackbird"]["T_sens_gyro"] = np.zeros((3, 3))
-    init_calib["Blackbird"]["T_mat_accel"] = np.eye(3)
-    # Euroc
-    init_calib["Euroc"] = {}
-    init_calib["Euroc"]["gyro_bias"] = np.array([0.0, 0.0, 0.0])
-    init_calib["Euroc"]["accel_bias"] = np.array([0.0, 0.0, 0.0])
-    init_calib["Euroc"]["T_mat_gyro"] = np.eye(3)
-    init_calib["Euroc"]["T_sens_gyro"] = np.zeros((3, 3))
-    init_calib["Euroc"]["T_mat_accel"] = np.eye(3)
+    # DIDO
+    init_calib["DIDO"] = {}
+    init_calib["DIDO"]["gyro_bias"] = np.array([0.0, 0.0, 0.0])
+    init_calib["DIDO"]["accel_bias"] = np.array([0.0, 0.0, 0.0])
+    init_calib["DIDO"]["T_mat_gyro"] = np.eye(3)
+    init_calib["DIDO"]["T_sens_gyro"] = np.zeros((3, 3))
+    init_calib["DIDO"]["T_mat_accel"] = np.eye(3)
+    # our2
+    init_calib["our2"] = {}
+    init_calib["our2"]["gyro_bias"] = np.array([0.0, 0.0, 0.0])
+    init_calib["our2"]["accel_bias"] = np.array([0.0, 0.0, 0.0])
+    init_calib["our2"]["T_mat_gyro"] = np.eye(3)
+    init_calib["our2"]["T_sens_gyro"] = np.zeros((3, 3))
+    init_calib["our2"]["T_mat_accel"] = np.eye(3)
     return init_calib[dtset_name]
 

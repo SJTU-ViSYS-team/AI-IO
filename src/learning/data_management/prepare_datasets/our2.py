@@ -14,34 +14,10 @@ from pyhocon import ConfigFactory
 '''
     python src/learning/data_management/prepare_datasets/our2.py --config config/our2.conf
 '''
-# NOTE: 
-# the provided ground truth is the drone body in the NWU vicon frame
-# rotate to have z upwards, to NWU
-# R_w_nwu = np.array([
-#     [1., 0., 0.],
-#     [0., 1., 0.],
-#     [0., 0., 1.]])
-# t_w_nwu = np.array([0., 0., 0.])
-
-# # rotate from imu to body frame, f-l-u
-# R_b_i = np.array([
-#     [1., 0., 0.],
-#     [0., 1., 0.],
-#     [0., 0., 1.]])
-# t_b_i = np.array([0., 0., 0.])
-
-# # w1 to w2: UEN to NWU
-# R_w2_w1 = np.array([
-#     [1., 0., 0.],
-#     [0., 1., 0.],
-#     [0., 0., 1.]
-# ])
-# t_w2_w1 = np.array([0., 0., 0.])
 
 dt = 0.01
 
 def process_sequence(dataset_dir, seq_name, save_txt, split_ratios=(0.7, 0.15, 0.15)):
-    # base_seq_name = os.path.dirname(os.path.dirname(seq_name))
     data_dir = os.path.join(dataset_dir, seq_name)
     assert os.path.isdir(data_dir), '%s' % data_dir
 
@@ -157,7 +133,6 @@ def process_sequence(dataset_dir, seq_name, save_txt, split_ratios=(0.7, 0.15, 0
 
     times_imu = times_imu[idx_s:idx_e + 1]
     raw_imu = raw_imu[idx_s:idx_e + 1]
-    start_time, end_time = times_imu[0], times_imu[-1]
 
     # interpolate ground-truth samples at imu times
     throt_data = interp1d(throt[:, 0], throt[:, 1],axis=0)(times_imu)
@@ -182,7 +157,7 @@ def process_sequence(dataset_dir, seq_name, save_txt, split_ratios=(0.7, 0.15, 0
     ts = raw_imu[:, 0]
 
     # Calibrate
-    imu_calibrator = utils.getImuCalib("Blackbird")
+    imu_calibrator = utils.getImuCalib("our2")
     b_g = imu_calibrator["gyro_bias"]
     b_a = imu_calibrator["accel_bias"]
     w_calib = raw_imu[:, 1:4].T - b_g[:, None]

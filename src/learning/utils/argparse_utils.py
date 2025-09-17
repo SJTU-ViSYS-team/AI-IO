@@ -1,19 +1,3 @@
-"""
-This file is part of Learned Inertial Model Odometry.
-Copyright (C) 2023 Giovanni Cioffi <cioffi at ifi dot uzh dot ch>
-(Robotics and Perception Group, University of Zurich, Switzerland).
-This file is subject to the terms and conditions defined in the file
-'LICENSE', which is part of this source code package.
-"""
-
-"""
-Reference: https://github.com/CathIAS/TLIO/blob/master/src/utils/argparse_utils.py
-"""
-
-import argparse
-
-import numpy as np
-
 def add_bool_arg(parser, name, default=False, **kwargs):
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument(
@@ -59,10 +43,10 @@ def arg_conversion(args):
     net_config = {
         "net_type": 'model',
         "weight_vel_err": args.weight_vel_err,
-        "weight_pos_err": args.weight_pos_err,
+        # "weight_pos_err": args.weight_pos_err,
         "loss_type": args.loss_type,
         "huber_vel_loss_delta": args.huber_vel_loss_delta * args.weight_vel_err,
-        "huber_pos_loss_delta": args.huber_pos_loss_delta * args.weight_pos_err,
+        # "huber_pos_loss_delta": args.huber_pos_loss_delta * args.weight_pos_err,
         "switch_iter": args.switch_iter,
     }
 

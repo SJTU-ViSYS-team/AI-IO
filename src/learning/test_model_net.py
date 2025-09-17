@@ -15,18 +15,50 @@ import os
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import numpy as np
+import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
 from learning.data_management.datasets import *
-from learning.network.losses import get_error_and_loss, get_loss
+from learning.network.losses import get_loss
 from learning.network.model_factory import get_model
 
 from learning.utils.argparse_utils import arg_conversion
 from learning.utils.logging import logging
 
 from pyhocon import ConfigFactory
+from learning.utils.error_analyze import *
 
+def integrate_trajectory(ts, pred_vel_body, gt_traj):
+    """
+    convert veclocity predictions from body to world frame, integrate to trajectory
+    ts: [N, window_size]
+    pred_vel_body: [N, 3]
+    gt_traj: [N, 7] or [N, 10]
+
+    return: pred_pos_world [N, 3]
+    """
+    # Init
+    pred_pos_world = np.zeros((pred_vel_body.shape[0], 3))
+    pred_vel_world = np.zeros((pred_vel_body.shape[0], 3))
+    pred_pos_world[0] = gt_traj[0, :3]
+
+    time = ts[:, -1]
+    dt = np.diff(time, prepend=time[0])
+
+    for i in range(1, len(time)):
+        # get quaternion (qx, qy, qz, qw)
+        R = pose.xyzwQuatToMat(gt_traj[i, 3:7])
+
+        # body vel -> world vel
+        v_body = pred_vel_body[i]
+        v_world = R @ v_body
+
+        # integrate
+        pred_vel_world[i] = v_world
+        pred_pos_world[i] = pred_pos_world[i-1] + v_world * dt[i]
+
+    return pred_pos_world, pred_vel_world
 
 def makeErrorPlot(dp_errors, dp_cov):
     fig1 = plt.figure("Errors")
@@ -91,6 +123,7 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     ts_all, targets_all = [], []
     pred_all, pred_cov_all = [], []
     errs_all, losses_all = [], []
+    traj_all = []
     
     network.eval()
 
@@ -99,40 +132,34 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         # dims = [batch size, 16, window size]
         # targ = [dv]
         # dims = [batch size, 3]
-        ts = ts.to(device).to(torch.float32)
-        ts = ts - ts[:, 0:1]
         feat = feat.to(device)
         targ = targ.to(device)
+        gt_traj = gt_traj.to(device)
         
-        pred, pred_cov = network(feat, ts)
+        pred, pred_cov = network(feat)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
         errs = pred - targ
-        # errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
         
         # log
         losses_all.append(torch_to_numpy(loss))
-        # errs_norm = np.linalg.norm(torch_to_numpy(errs), axis=1)
         errs_all.append(torch_to_numpy(errs))
-
         ts_all.append(torch_to_numpy(ts))
         targets_all.append(torch_to_numpy(targ))
-
         pred_all.append(torch_to_numpy(pred))
         pred_cov_all.append(torch_to_numpy(pred_cov))
+        traj_all.append(torch_to_numpy(gt_traj[:, -1, :]))
 
     losses_all = np.concatenate(losses_all, axis=0)
     errs_all = np.concatenate(errs_all, axis=0)
     errs_norm = np.linalg.norm(errs_all, axis=1)
-    
     rmse = np.sqrt(np.mean(errs_all ** 2, axis=0))
-
     ts_all = np.concatenate(ts_all, axis=0)
     targets_all = np.concatenate(targets_all, axis=0)
-
     pred_all = np.concatenate(pred_all, axis=0)
     pred_cov_all = np.concatenate(pred_cov_all, axis=0)
+    traj_all = np.concatenate(traj_all, axis=0)
         
     attr_dict = {
         "losses": losses_all,
@@ -141,7 +168,8 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         "ts": ts_all,
         "targets": targets_all,
         "pred_all": pred_all,
-        "pred_cov_all": pred_cov_all
+        "pred_cov_all": pred_cov_all,
+        "traj_all": traj_all
         }
 
     return attr_dict
@@ -185,19 +213,16 @@ def test(args):
     model_path = os.path.join(args.out_dir, args.dataset, "checkpoints", "model_net", args.model_fn)
     checkpoint = torch.load(model_path, map_location=device)
 
-    input_dim = args.input_dim
-    output_dim = args.output_dim
-    network = get_model(input_dim, output_dim, data_window_config["window_size"]).to(
+    network = get_model(data_window_config["window_size"]).to(
         device
     )
     network.load_state_dict(checkpoint["model_state_dict"])
     network.eval()
     logging.info(f"Model {model_path} loaded to device {device}.")
 
+    all_errors = []
+    all_results = []
     # process sequences
-    avg_loss = 0.0
-    avg_error = 0.0
-    cnt = 0
     for seq_name, data in test_list:
         logging.info(f"Processing {seq_name}...")
         try:
@@ -213,37 +238,82 @@ def test(args):
         # Print loss infos
         errs_vel = np.mean(net_attr_dict["errs"])
         loss = np.mean(net_attr_dict["losses"])
-
-        avg_loss += loss
-        avg_error += errs_vel
-        cnt += 1
         
-
         logging.info(f"Test: average vel err [m/s]: {errs_vel}")
         logging.info(f"Test: average loss: {loss}")
             
         # save displacement related quantities
         ts = net_attr_dict["ts"]
+        vel_targets = net_attr_dict["targets"]
         pred = net_attr_dict["pred_all"] # n*3
-        pred_sampled = np.concatenate((ts[:, -1].reshape(-1, 1), pred), axis=1)
+        gt_traj = net_attr_dict["traj_all"]
         pred_cov = net_attr_dict["pred_cov_all"]
         pred_cov[pred_cov<-4] = -4
         for i in range(3):
             pred_cov[:, i] = torch.exp(2 * torch.tensor(pred_cov[:, i], dtype=torch.float32))
-        pred_cov_sampled = np.concatenate((ts[:, -1].reshape(-1, 1), pred_cov), axis=1)
-
 
         outdir = os.path.join(args.out_dir, args.dataset, seq_name)
         if os.path.exists(outdir) is False:
             os.makedirs(outdir)
-        outfile = os.path.join(outdir, "model_net_learnt_predictions.txt")
-        np.savetxt(outfile, pred_sampled, fmt="%.12f", header="t0 vx vy vz")
-        outfile = os.path.join(outdir, "model_net_learnt_predictions_covariance.txt")
-        np.savetxt(outfile, pred_cov_sampled, fmt="%.5f", header="t0 covx covy covz")
-
         # save loss
         outfile = os.path.join(outdir, "net_losses.txt")
         np.savetxt(outfile, net_attr_dict["losses"])
+
+        df = pd.DataFrame({
+                "gt_vel_x": vel_targets[::5, 0],
+                "gt_vel_y": vel_targets[::5, 1],
+                "gt_vel_z": vel_targets[::5, 2],
+                "pred_vel_x": pred[::5, 0],
+                "pred_vel_y": pred[::5, 1],
+                "pred_vel_z": pred[::5, 2],
+        })
+
+        csv_path = os.path.join(outdir, "net_prediction.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"Saved net predictions to {csv_path}")
+
+        # --- Trajectory Reconstruction ---
+        pred_vel_body = pred  # [N, 3]
+        pred_pos_world, pred_vel_world = integrate_trajectory(ts, pred_vel_body, gt_traj)
+
+        gt_pos_world = gt_traj[:, :3] 
+        gt_vel_world = gt_traj[:, 7:10]
+
+        df = pd.DataFrame({
+            "gt_pos_x": gt_pos_world[::5, 0],
+            "gt_pos_y": gt_pos_world[::5, 1],
+            "gt_pos_z": gt_pos_world[::5, 2],
+            "pred_pos_x": pred_pos_world[::5, 0],
+            "pred_pos_y": pred_pos_world[::5, 1],
+            "pred_pos_z": pred_pos_world[::5, 2],
+        })
+
+        df_v = pd.DataFrame({
+            "gt_vel_x": gt_vel_world[::5, 0],
+            "gt_vel_y": gt_vel_world[::5, 1],
+            "gt_vel_z": gt_vel_world[::5, 2],
+            "pred_vel_x": pred_vel_world[::5, 0],
+            "pred_vel_y": pred_vel_world[::5, 1],
+            "pred_vel_z": pred_vel_world[::5, 2],
+        })
+
+        csv_path = os.path.join(outdir, "net_inf_pos.csv")
+        vel_path = os.path.join(outdir, "net_inf_vel.csv")
+        df.to_csv(csv_path, index=False)
+        df_v.to_csv(vel_path, index=False)
+        print(f"Saved net inference position and velocity to {outdir}")
+
+        errors = compute_position_velocity_errors(
+            est_pos=pred_pos_world, gt_pos=gt_pos_world,
+            est_vel=pred_vel_world, gt_vel=gt_vel_world
+        )
+        row = {
+                "ATE_our": errors['position_rmse'][-1],
+                "AVE_our": errors['velocity_rmse'][-1],
+                "RTE_our": errors['position_rrmse'][-1],
+                "RVE_our": errors['velocity_rrmse'][-1],
+            }
+        all_results.append(row)
 
         # plotting
         if args.show_plots:
@@ -251,7 +321,6 @@ def test(args):
             os.makedirs(plot_dir, exist_ok=True)
 
             # compute errors
-            vel_targets = net_attr_dict["targets"]
             vel_errs = pred - vel_targets
             sum_vel = np.linalg.norm(pred, axis=1)
             plt.figure('Sum Speed')
@@ -264,7 +333,6 @@ def test(args):
             plt.savefig(os.path.join(plot_dir, "speed.svg"), bbox_inches='tight')
             plt.savefig(os.path.join(plot_dir, "speed.png"))
             plt.close()
-
 
             # --- Velocity Plot ---
             plt.figure(figsize=(12, 6))
@@ -281,7 +349,7 @@ def test(args):
             plt.savefig(os.path.join(plot_dir, "velocity.svg"), bbox_inches='tight')
             plt.savefig(os.path.join(plot_dir, "velocity.png"))
             plt.close()
-
+            
             # --- Errors Plot ---
             plt.figure('Errors')
             plt.subplot(3, 1, 1)
@@ -340,28 +408,19 @@ def test(args):
                 f.write(f"average vel err [m/s]: {errs_vel}\n")
                 f.write(f"average loss: {loss}\n")
 
-            if args.show_plots:
-                plt.show()
-    loss = avg_loss / cnt
-    err = avg_error / cnt
-    print(f"Avg velocity prediction loss and error across test data in {args.dataset} are: ", loss, "|", err, "[m/s]")
+            all_errors.append(errs_vel)
+        
+    df = pd.DataFrame(all_results)
+    df.to_csv("our2_inf_metrics.csv", index=False)
+    print("Average Velocity Error on All Test Data: %.5f" % np.mean(np.array(all_errors)))
+    
     return
 
 def construct_dataset(args, data_list, data_window_config, mode="test"):
-    if args.dataset == "Euroc":
-        train_dataset = ModelEurocDataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "DIDO":
+    if args.dataset == "DIDO":
         train_dataset = ModelDIDODataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "Blackbird":
-        train_dataset = ModelBlackbirdDataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "FPV":
-        train_dataset = ModelFPVDataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "Simulation":
-        train_dataset = ModelSimulationDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "our2":
         train_dataset = ModelOur2Dataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "ours":
-        train_dataset = ModelOursDataset(data_list, args, data_window_config, mode=mode)
     else:
         raise ValueError(f"Unknown dataset {args.dataset}")
     return train_dataset

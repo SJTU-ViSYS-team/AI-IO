@@ -24,11 +24,10 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 
 from learning.data_management.datasets import *
-from learning.network.losses import get_error_and_loss, get_loss
+from learning.network.losses import get_loss
 from learning.network.model_factory import get_model
 from learning.utils.argparse_utils import arg_conversion
 from learning.utils.logging import logging
-from learning.utils.visualize_utils import *
 
 from pyhocon import ConfigFactory
 from tqdm import tqdm
@@ -61,15 +60,12 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
         # dims = [batch size, 16, window size]
         # targ = [v]
         # dims = [batch size, 3]
-
-        ts = ts.to(device).to(torch.float32)
-        ts = ts - ts[:, 0:1]
         feat = feat.to(device)
         targ = targ.to(device)
         gt_traj = gt_traj.to(device)
 
         # get network prediction
-        pred, pred_cov = network(feat, ts)
+        pred, pred_cov = network(feat)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
@@ -87,8 +83,6 @@ def get_inference(learn_configs, network, data_loader, device, epoch):
     errors_all = np.concatenate(errors_all, axis=0)
     losses_all = np.concatenate(losses_all, axis=0)
 
-    # errors_all = np.concatenate(errors_all, axis=0)
-
     attr_dict = {
         "preds_cov":preds_cov_all,
         "errors": errors_all,
@@ -103,16 +97,16 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
     Train network for one epoch
     """
     errors_all, losses_all, preds_cov_all = [], [], []
-    # errors_all, losses_all = [], []
 
     network.train()
 
-    for _, (feat, targ, gt_traj, ts, gyro, accel) in enumerate(train_loader):
+    pbar = tqdm(train_loader, ncols=100)
+    for (feat, targ, gt_traj, ts, gyro, accel) in pbar:
         # feat_i = [[acc], [gyro], [rotor speed], [6d rotation matrix]]
         # dims = [batch size, 16, window size]
         # targ = [v]
         # dims = [batch size, 3]
-        ts = ts.to(device).to(torch.float32)
+        ts = ts.to(device).to(torch.float64)
         ts = ts - ts[:, 0:1]
         feat = feat.to(device)
         targ = targ.to(device)
@@ -121,7 +115,7 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
         optimizer.zero_grad()
 
         # get network prediction
-        pred, pred_cov = network(feat, ts)
+        pred, pred_cov = network(feat)
 
         # compute loss
         loss = get_loss(pred, pred_cov, targ, epoch, learn_configs)
@@ -131,6 +125,8 @@ def run_train(learn_configs, network, train_loader, device, optimizer, epoch):
         errors_all.append(errs_norm)
         losses_all.append(torch_to_numpy(loss))
         preds_cov_all.append(torch_to_numpy(pred_cov))
+
+        pbar.set_description(f"loss: {np.mean(torch_to_numpy(loss)):.3f}, err: {np.mean(errs_norm):.3f}")
 
         # backprop and optimization
         loss = loss.mean()
@@ -155,7 +151,7 @@ def write_summary(summary_writer, attr_dict, epoch, optimizer, mode):
     """ Given the attr_dict write summary and log the losses """
     error = np.mean(attr_dict["errors"])
     loss = np.mean(attr_dict["losses"])
-    summary_writer.add_scalar(f"{mode}_loss_vel/avg", error, epoch)
+    summary_writer.add_scalar(f"{mode}_error/avg", error, epoch)
     summary_writer.add_scalar(f"{mode}_loss/avg", loss, epoch)
     logging.info(f"{mode}: average error [m/s]: {error}")
     logging.info(f"{mode}: average loss: {loss}")
@@ -230,7 +226,7 @@ def train(args):
 
     # Display
     np.set_printoptions(formatter={"all": "{:.6f}".format})
-    logging.info("Training/testing with " + str(data_window_config["sampling_freq"]) + " Hz gyro / thrust data")
+    logging.info("Training/testing with " + str(data_window_config["sampling_freq"]) + " Hz imu and rotor speed data")
     logging.info(
         "Window time: " + str(args.window_time)
         + " [s], " 
@@ -245,15 +241,12 @@ def train(args):
     device = torch.device(
         "cuda:0" if torch.cuda.is_available() and not args.cpu else "cpu"
     )    
-    input_dim = args.input_dim
-    output_dim = args.output_dim
-    network = get_model(input_dim, output_dim, data_window_config["window_size"]).to(
+    network = get_model(data_window_config["window_size"]).to(
         device
     )
 
     n_params = network.get_num_params()
-    params = network.parameters()
-    logging.info(f'TCN network loaded to device {device}')
+    logging.info(f'Network loaded to device {device}')
     logging.info(f"Total number of learning parameters: {n_params}")
 
     # Training / Validation datasets
@@ -275,7 +268,7 @@ def train(args):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.1, patience=5, eps=1e-5
     )
-    logging.info(f"Optimizer: {optimizer}, Scheduler: {scheduler}")
+    logging.info(f"Optimizer: {optimizer}")
 
     start_epoch = 0
     if args.continue_from != None:
@@ -329,7 +322,6 @@ def train(args):
     ##############################################
     ############ actual training loop ############
     ##############################################
-    visualize_path = os.path.join(args.out_dir, "visualize", timestamp)
     for epoch in range(start_epoch + 1, args.epochs + 1):
         signal.signal(
             signal.SIGINT, partial(stop_signal_handler, args, epoch, network, optimizer)
@@ -350,9 +342,6 @@ def train(args):
             val_attr_dict = get_inference(net_config, network, val_loader, device, epoch)
             write_summary(summary_writer, val_attr_dict, epoch, optimizer, "val")
             current_loss = np.mean(val_attr_dict["losses"])
-            if epoch % 5 == 0 and args.visualize_net:
-                visualize_net(network, visualize_path, epoch)
-            # scheduler.step(current_loss)
 
             if current_loss < best_loss:
                 best_loss = current_loss
@@ -374,20 +363,10 @@ def train(args):
 
 
 def construct_dataset(args, data_list, data_window_config, mode="train"):
-    if args.dataset == "Euroc":
-        train_dataset = ModelEurocDataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "DIDO":
+    if args.dataset == "DIDO":
         train_dataset = ModelDIDODataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "Blackbird":
-        train_dataset = ModelBlackbirdDataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "FPV":
-        train_dataset = ModelFPVDataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "Simulation":
-        train_dataset = ModelSimulationDataset(data_list, args, data_window_config, mode=mode)
     elif args.dataset == "our2":
         train_dataset = ModelOur2Dataset(data_list, args, data_window_config, mode=mode)
-    elif args.dataset == "ours":
-        train_dataset = ModelOursDataset(data_list, args, data_window_config, mode=mode)
     else:
         raise ValueError(f"Unknown dataset {args.dataset}")
     return train_dataset

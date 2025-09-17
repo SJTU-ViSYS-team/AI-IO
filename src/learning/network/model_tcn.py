@@ -1,19 +1,6 @@
-"""
-This file is part of Learned Inertial Model Odometry.
-Copyright (C) 2023 Giovanni Cioffi <cioffi at ifi dot uzh dot ch>
-(Robotics and Perception Group, University of Zurich, Switzerland).
-This file is subject to the terms and conditions defined in the file
-'LICENSE', which is part of this source code package.
-"""
-
-"""
-Reference: https://github.com/CathIAS/TLIO/blob/master/src/network/model_tcn.py
-"""
-
 from typing import Optional
 import torch
 import torch.nn as nn
-from torch.nn import MultiheadAttention
 from torch.nn.utils import weight_norm
 
 import math
@@ -173,7 +160,7 @@ class Tcn(nn.Module):
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def forward(self, x, ts):
+    def forward(self, x):
         x = x[:, :-6, :]        # remove attitude information
         start = 6
         rotor_spd = x[:, start:start+4, :]
@@ -185,51 +172,6 @@ class Tcn(nn.Module):
         pred = self.linear1(x[:, :, -1])
         pred_cov = self.linear2(x[:, :, -1])
         return pred, pred_cov
-    
-class TcnGru(nn.Module):
-    """
-    This tcn is trained so that the output at current time is a vector that contains
-    the prediction using the last second of inputs.
-    The receptive field is givent by the input parameters.
-    """
-
-    def __init__(
-        self,
-        input_size,
-        output_size,
-        num_channels,
-        kernel_size,
-        dropout,
-        activation="ReLU",
-    ):
-        super(TcnGru, self).__init__()
-        self.tcn = TemporalConvNet(
-            input_size,
-            num_channels,
-            kernel_size=kernel_size,
-            dropout=dropout,
-            activation=dict_activation[activation],
-        )
-        self.gru = nn.GRU(input_size = 128, hidden_size =64, num_layers = 1, batch_first = True, bidirectional=True)
-        self.linear1 = nn.Linear(num_channels[-1], output_size)
-        self.linear2 = nn.Linear(num_channels[-1], output_size)
-        self.init_weights()
-
-    def init_weights(self):
-        self.linear1.weight.data.normal_(0, 0.01)
-        self.linear2.weight.data.normal_(0, 0.01)
-
-    def get_num_params(self):
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    def forward(self, x, h_prev=None):
-        x = self.tcn(x)
-        x = x.permute(0, 2, 1)
-        x, h = self.gru(x, h_prev)
-        x = x.permute(0, 2, 1)
-        pred = self.linear1(x[:, :, -1])
-        pred_cov = self.linear2(x[:, :, -1])
-        return pred, pred_cov, h
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=500):
@@ -277,7 +219,7 @@ class IMUTransformerWithModality(nn.Module):
     def __init__(
         self,
         sub_dim=16,
-        nhead=4,
+        nhead=8,
         num_layers=2,
         dim_feedforward=128,
         dropout=0.2,
@@ -287,34 +229,30 @@ class IMUTransformerWithModality(nn.Module):
     ):
         super(IMUTransformerWithModality, self).__init__()
         self.enabled_modalities = enabled_modalities
-        self.modalities_fc = nn.ModuleDict()
+        self.modalities_cnn = nn.ModuleDict()
 
         num_enabled = len(self.enabled_modalities)
         d_model = num_enabled * sub_dim
         self.d_model = d_model
         if num_enabled == 0:
             raise ValueError("At least one modality must be enabled.")
-        # sub_dim = d_model // num_enabled
 
         if "acc" in self.enabled_modalities:
-            self.modalities_fc["acc"] = nn.Linear(3, sub_dim)
-            self.modalities_fc["acc"] = nn.Conv1d(3, sub_dim, 5)
+            self.modalities_cnn["acc"] = nn.Linear(3, sub_dim) # TODO:delete
+            self.modalities_cnn["acc"] = nn.Conv1d(3, sub_dim, 5)
         if "gyro" in self.enabled_modalities:
-            self.modalities_fc["gyro"] = nn.Linear(3, sub_dim)
-            self.modalities_fc["gyro"] = nn.Conv1d(3, sub_dim, 5)
+            self.modalities_cnn["gyro"] = nn.Linear(3, sub_dim)
+            self.modalities_cnn["gyro"] = nn.Conv1d(3, sub_dim, 5)
         if "rotor_spd" in self.enabled_modalities:
-            self.modalities_fc["rotor_spd"] = nn.Linear(4, sub_dim)
-            self.modalities_fc["rotor_spd"] = nn.Conv1d(4, sub_dim, 5)
+            self.modalities_cnn["rotor_spd"] = nn.Linear(4, sub_dim)
+            self.modalities_cnn["rotor_spd"] = nn.Conv1d(4, sub_dim, 5)
         if "atti" in self.enabled_modalities:
-            self.modalities_fc["atti"] = nn.Linear(6, sub_dim)
-            self.modalities_fc["atti"] = nn.Conv1d(6, sub_dim, 5)
+            self.modalities_cnn["atti"] = nn.Linear(6, sub_dim)
+            self.modalities_cnn["atti"] = nn.Conv1d(6, sub_dim, 5)
 
         self.pos_encoder = PositionalEncoding(d_model, max_len=window_size)
 
-        # self.acc_norm_layer = EmpiricalNormalization(3)
-        # self.gyro_norm_layer = EmpiricalNormalization(3)
         self.rotor_spd_norm_layer = EmpiricalNormalization(4)
-        # self.atti_norm_layer = EmpiricalNormalization(6)
 
         encoder_layers = nn.ModuleList([
             TransformerEncoderLayerWithAttention(
@@ -339,27 +277,23 @@ class IMUTransformerWithModality(nn.Module):
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-    def forward(self, x, ts):
+    def forward(self, x):
         """
-        x: [B, C, T]  —  acc(3), gyro(3), rotor_spd(4), quat(4)
+        x: [B, C, T]  —  acc(3), gyro(3), rotor_spd(4), 6dR(6)
         """
         B, _, T = x.shape
         feat_list = []
         self.activations = {}
 
         if "acc" in self.enabled_modalities:
-            acc = x[:, :3, :].permute(0, 2, 1)
-            # self.acc_norm_layer.update(acc)
-            # acc = self.acc_norm_layer(acc).permute(0, 2, 1)
-            acc_f = self.modalities_fc["acc"](acc.permute(0, 2, 1)).permute(0, 2, 1)
+            acc = x[:, :3, :]
+            acc_f = self.modalities_cnn["acc"](acc).permute(0, 2, 1)
             feat_list.append(acc_f)
             self.activations["acc"] = acc_f.detach().cpu()
 
         if "gyro" in self.enabled_modalities:
-            gyro = x[:, 3:6, :].permute(0, 2, 1)
-            # self.gyro_norm_layer.update(gyro)
-            # gyro = self.gyro_norm_layer(gyro).permute(0, 2, 1)
-            gyro_f = self.modalities_fc["gyro"](gyro.permute(0, 2, 1)).permute(0, 2, 1)
+            gyro = x[:, 3:6, :]
+            gyro_f = self.modalities_cnn["gyro"](gyro).permute(0, 2, 1)
             feat_list.append(gyro_f)
             self.activations["gyro"] = gyro_f.detach().cpu()
 
@@ -368,25 +302,23 @@ class IMUTransformerWithModality(nn.Module):
             rotor_spd = x[:, start:start+4, :]
             rotor_spd_squared = rotor_spd ** 2
             self.rotor_spd_norm_layer.update(rotor_spd_squared)
-            rotor_spd_squared = self.rotor_spd_norm_layer(rotor_spd_squared).permute(0, 2, 1)
-            rotor_spd_f = self.modalities_fc["rotor_spd"](rotor_spd_squared.permute(0, 2, 1)).permute(0, 2, 1)
+            rotor_spd_squared = self.rotor_spd_norm_layer(rotor_spd_squared)
+            rotor_spd_f = self.modalities_cnn["rotor_spd"](rotor_spd_squared).permute(0, 2, 1)
             feat_list.append(rotor_spd_f)
             self.activations["rotor_spd"] = rotor_spd_f.detach().cpu()
 
         if "atti" in self.enabled_modalities:
-            atti = x[:, 10:, :].permute(0, 2, 1)
-            # self.atti_norm_layer.update(atti)
-            # atti = self.atti_norm_layer(atti).permute(0, 2, 1)
-            atti_f = self.modalities_fc["atti"](atti.permute(0, 2, 1)).permute(0, 2, 1)
+            atti = x[:, 10:, :]
+            atti_f = self.modalities_cnn["atti"](atti).permute(0, 2, 1)
             feat_list.append(atti_f)
             self.activations["atti"] = atti_f.detach().cpu()
 
-        fused = torch.cat(feat_list, dim=-1)  # [B, T, D]
-        fused = fused.permute(1, 0, 2)        # [T, B, D]
+        fused = torch.cat(feat_list, dim=-1)  # [B, T, C]
+        fused = fused.permute(1, 0, 2)        # [T, B, C]
 
         x = self.pos_encoder(fused)
         x = self.transformer(x)
-        last_step = x[-1, :, :]  # [B, D]
+        last_step = x[-1, :, :]  # [B, C]
         pred = self.output_head(last_step)
         pred_cov = self.output_cov(last_step)
         return pred, pred_cov
@@ -414,16 +346,16 @@ class EmpiricalNormalization(nn.Module):
 
     def forward(self, x):
         """Normalize mean and variance of values based on empirical values."""
-        assert x.dim() == 3, "Input must be a 3D tensor (B, N, T)."
+        assert x.dim() == 3, "Input must be a 3D tensor (B, C, T)."
         return (x - self._mean[..., None]) / (self._std[..., None] + self.eps)
 
     @torch.jit.unused
     def update(self, x):
         """Learn input values without computing the output values of them"""
 
-        assert x.dim() == 3, "Input must be a 3D tensor (B, N, T)."
+        assert x.dim() == 3, "Input must be a 3D tensor (B, C, T)."
         x = x.permute(0, 2, 1).contiguous()
-        x = x.view(-1, x.size(-1))  # (B*T, N)
+        x = x.view(-1, x.size(-1))  # (B*T, C)
 
         if self.until is not None and self.count >= self.until:
             return

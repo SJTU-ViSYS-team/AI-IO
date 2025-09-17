@@ -10,10 +10,10 @@ This file is subject to the terms and conditions defined in the file
 Reference: https://github.com/CathIAS/TLIO/blob/master/src/network/model_factory.py
 """
 
-from learning.network.model_tcn import Tcn, TcnGru, IMUTransformerWithModality
+from learning.network.model_tcn import Tcn, IMUTransformerWithModality
 
 
-def get_model(input_dim=9, output_dim=3, window_s=50):
+def get_model(window_s=100):
     network = IMUTransformerWithModality(
         sub_dim=16,
         nhead=8,
@@ -22,12 +22,12 @@ def get_model(input_dim=9, output_dim=3, window_s=50):
         dropout=0.2,
         output_size=3,
         window_size=window_s,
-        enabled_modalities=["acc", "gyro", "rotor_spd"],  
+        enabled_modalities=["acc", "gyro", "rotor_spd"]
     )
     # network = Tcn(
-    #     input_dim,
-    #     output_dim,
-    #     [64, 64, 128],
+    #     input_size=10,
+    #     output_size=3,
+    #     num_channels=[64, 64, 128],
     #     kernel_size=2,
     #     dropout=0.3,
     #     activation="GELU",
