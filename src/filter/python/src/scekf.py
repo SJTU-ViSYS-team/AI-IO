@@ -484,17 +484,7 @@ class ImuMSCKF:
     [out]: jacobian
     [out]: noise matrix
     """
-    def learnt_model_update(self, meas, meas_cov, t_begin_us, t_end_us):
-        if not self.converged and self.check_filter_convergence():
-            logging.info("Filter is now assumed to have converged")
-            self.converged = True
-
-        try:
-            begin_idx = self.state.si_timestamps_us.index(t_begin_us)
-            end_idx = self.state.si_timestamps_us.index(t_end_us)
-        except Exception:
-            logging.error("timestamps not found in past states!")
-
+    def learnt_model_update(self, meas, meas_cov):
         R = self.meascov_scale * meas_cov
         # set constant measurement covariance
         if self.use_const_cov:
@@ -506,27 +496,14 @@ class ImuMSCKF:
         # symmetrize R
         R = 0.5 * (R + R.T)
         R[R < 1e-10] = 0
-        # R = R[:2, :2]
 
         # compute prediction
-        # pred = self.state.si_ps[end_idx] - self.state.si_ps[begin_idx]
-        pred = self.state.si_Rs[end_idx].T @ self.state.si_vs[end_idx]
+        pred = self.state.s_R.T @ self.state.s_v
 
-        # meas = self.state.si_Rs[end_idx] @ meas
-        # R = self.state.si_Rs[end_idx] @ R @ self.state.si_Rs[end_idx].T
-        # pred = self.state.si_vs[end_idx]
+        H = np.zeros((3, 15))
+        H[:, 0 : 3] = self.state.s_R.T @ hat(self.state.s_v)
+        H[:, 3 : 6] = self.state.s_R.T
 
-        assert begin_idx < end_idx, "begin_idx is larger than end_idx!"
-        assert (
-            end_idx < self.state.N
-        ), "end_idx is larger than the number of past states in the filter!"
-        H = np.zeros((3, 15 + 9 * self.state.N))
-        H[:, (9 * end_idx) : (9 * end_idx + 3)] = hat(pred)
-        H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = self.state.si_Rs[end_idx].T
-        # H[:, (9 * end_idx + 3) : (9 * end_idx + 6)] = np.ones((3, 3))
-        # H = H[:2, :]
-
-        # pred = pred[:2,:]
         assert (
             self.Sigma.shape[0] == H.shape[1]
         ), "state covariance and matrix H does not match shape!"
@@ -552,7 +529,6 @@ class ImuMSCKF:
                 self.last_success_mahalanobis = self.state.s_timestamp_us
 
         innovation = meas - pred
-        # innovation = innovation[:2]
         
         self.meas = meas
         self.pred = pred
@@ -632,6 +608,7 @@ class ImuMSCKF:
 
         # obtain kalman gain
         K = np.linalg.multi_dot([self.Sigma, stacked_H.T, Sinv])
+        # K[-15:-12, :] = np.zeros_like(K[-15:-12, :])
         delta_X = K.dot(self.innovation)
         self.state.apply_correction(delta_X)
 

@@ -48,8 +48,6 @@ class ModelSequence(CompiledSequence):
         ) = (None, None, None, None, None, None, None)
 
         self.mode = kwargs.get("mode", "train")
-        self.perturb_orientation = args.perturb_orientation
-        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
         self.perturb_accel = args.perturb_accel
         self.perturb_accel_range = args.perturb_accel_range
 
@@ -70,17 +68,11 @@ class ModelSequence(CompiledSequence):
         self.gyro_raw = gyro_raw
         self.accel_raw = accel_raw
 
-        ypr = np.array([pose.fromQuatToEulerAng(targ[3:7]) for targ in traj_target]) * np.pi / 180.0
-        atti = np.array([pose.xyzwQuatToMat(targ[3:7]).reshape(9)[:6] for targ in traj_target])
         if self.mode == "train":
-            if self.perturb_orientation:
-                theta_rand = np.random.uniform(-1, 1, ypr.shape) * np.pi * self.perturb_orientation_theta_range / 180.0
-                ypr += theta_rand
-                atti = np.array([pose.fromEulerAngToRotMat(ang[0], ang[1], ang[2]).reshape(9)[:6] for ang in ypr])
             if self.perturb_accel:
                 accel_rand = np.random.uniform(-1, 1, accel_calib.shape) * self.perturb_accel_range
                 accel_calib += accel_rand
-        self.feat = np.concatenate([accel_calib, gyro_calib, rotor_spd, atti], axis=1)
+        self.feat = np.concatenate([accel_calib, gyro_calib, rotor_spd], axis=1)
         self.targ_vb = np.zeros((traj_target.shape[0], 3))
         for i in range(traj_target.shape[0]):
             self.targ_vb[i, :] = pose.xyzwQuatToMat(traj_target[i, 3:7]).T @ traj_target[i,7:10]
@@ -109,8 +101,6 @@ class ModelOur2Dataset(Dataset):
         self.g = np.array([0., 0., 9.7946])
 
         self.mode = kwargs.get("mode", "train")
-        self.perturb_orientation = args.perturb_orientation
-        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
         self.perturb_accel = args.perturb_accel
         self.perturb_accel_range = args.perturb_accel_range
 
@@ -200,8 +190,6 @@ class ModelDIDODataset(Dataset):
         self.g = np.array([0., 0., 9.7946])
 
         self.mode = kwargs.get("mode", "train")
-        self.perturb_orientation = args.perturb_orientation
-        self.perturb_orientation_theta_range = args.perturb_orientation_theta_range
         self.perturb_accel = args.perturb_accel
         self.perturb_accel_range = args.perturb_accel_range
 

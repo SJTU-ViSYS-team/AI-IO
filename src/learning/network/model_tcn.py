@@ -161,7 +161,7 @@ class Tcn(nn.Module):
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
 
     def forward(self, x):
-        x = x[:, :-6, :]        # remove attitude information
+        # x = x[:, :-6, :]
         start = 6
         rotor_spd = x[:, start:start+4, :]
         rotor_spd_squared = rotor_spd ** 2
@@ -225,7 +225,7 @@ class IMUTransformerWithModality(nn.Module):
         dropout=0.2,
         output_size=3,
         window_size=100,
-        enabled_modalities=["acc", "gyro", "rotor_spd", "atti"],  
+        enabled_modalities=["acc", "gyro", "rotor_spd"],  
     ):
         super(IMUTransformerWithModality, self).__init__()
         self.enabled_modalities = enabled_modalities
@@ -238,17 +238,11 @@ class IMUTransformerWithModality(nn.Module):
             raise ValueError("At least one modality must be enabled.")
 
         if "acc" in self.enabled_modalities:
-            self.modalities_cnn["acc"] = nn.Linear(3, sub_dim) # TODO:delete
             self.modalities_cnn["acc"] = nn.Conv1d(3, sub_dim, 5)
         if "gyro" in self.enabled_modalities:
-            self.modalities_cnn["gyro"] = nn.Linear(3, sub_dim)
             self.modalities_cnn["gyro"] = nn.Conv1d(3, sub_dim, 5)
         if "rotor_spd" in self.enabled_modalities:
-            self.modalities_cnn["rotor_spd"] = nn.Linear(4, sub_dim)
             self.modalities_cnn["rotor_spd"] = nn.Conv1d(4, sub_dim, 5)
-        if "atti" in self.enabled_modalities:
-            self.modalities_cnn["atti"] = nn.Linear(6, sub_dim)
-            self.modalities_cnn["atti"] = nn.Conv1d(6, sub_dim, 5)
 
         self.pos_encoder = PositionalEncoding(d_model, max_len=window_size)
 
@@ -306,12 +300,6 @@ class IMUTransformerWithModality(nn.Module):
             rotor_spd_f = self.modalities_cnn["rotor_spd"](rotor_spd_squared).permute(0, 2, 1)
             feat_list.append(rotor_spd_f)
             self.activations["rotor_spd"] = rotor_spd_f.detach().cpu()
-
-        if "atti" in self.enabled_modalities:
-            atti = x[:, 10:, :]
-            atti_f = self.modalities_cnn["atti"](atti).permute(0, 2, 1)
-            feat_list.append(atti_f)
-            self.activations["atti"] = atti_f.detach().cpu()
 
         fused = torch.cat(feat_list, dim=-1)  # [B, T, C]
         fused = fused.permute(1, 0, 2)        # [T, B, C]

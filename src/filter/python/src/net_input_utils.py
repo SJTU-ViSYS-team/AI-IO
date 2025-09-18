@@ -13,7 +13,6 @@ Reference: https://github.com/CathIAS/TLIO/blob/master/src/tracker/imu_buffer.py
 
 import numpy as np
 from scipy.interpolate import interp1d
-from scipy.spatial.transform import Slerp, Rotation
 
 
 class ImuCalib:
@@ -24,7 +23,6 @@ class ImuCalib:
         self.accelBias = np.zeros((3,1))
         self.gyroBias = np.zeros((3,1))
 
-    # @ToDo: Extend to scale factors and g-sensitivity 
     def from_dic(self, imu_calib_dic):
         self.gyroBias = imu_calib_dic["gyro_bias"].reshape((3,1))
         self.accelBias = imu_calib_dic["accel_bias"].reshape((3,1))
@@ -49,13 +47,12 @@ class NetInputBuffer:
 
     def __init__(self):
         self.net_t_us = np.array([])
-        self.net_accl = np.array([])  # mass normalized force
+        self.net_accl = np.array([])
         self.net_gyr = np.array([])
         self.net_rotor = np.array([])
-        self.net_quat = np.array([])
 
     def add_data_interpolated(
-        self, last_t_us, t_us, last_gyr, gyr, last_accl, accl, last_rotor, rotor, last_quat, quat, requested_interpolated_t_us
+        self, last_t_us, t_us, last_gyr, gyr, last_accl, accl, last_rotor, rotor, requested_interpolated_t_us
     ):
         assert isinstance(last_t_us, int)
         assert isinstance(t_us, int)
@@ -64,7 +61,6 @@ class NetInputBuffer:
             accl_interp = accl.T
             gyr_interp = gyr.T
             rotor_interp = rotor.T
-            quat_interp = quat.T
         else:
             try:
                 accl_interp = interp1d(
@@ -76,17 +72,14 @@ class NetInputBuffer:
                 rotor_interp = interp1d(
                     np.array([last_t_us, t_us], dtype=np.uint64).T,
                     np.concatenate([last_rotor.T, rotor.T]), axis=0)(requested_interpolated_t_us)
-                quat_interp = Slerp(
-                    np.array([last_t_us, t_us], dtype=np.uint64).T,
-                    Rotation.from_quat(np.concatenate([last_quat.T, quat.T])))(requested_interpolated_t_us).as_quat()
             except ValueError as e:
                 print(
                     f"Trying to do interpolation at {requested_interpolated_t_us} between {last_t_us} and {t_us}"
                 )
                 raise e
-        self._add_data(requested_interpolated_t_us, accl_interp, gyr_interp, rotor_interp, quat_interp)
+        self._add_data(requested_interpolated_t_us, accl_interp, gyr_interp, rotor_interp)
 
-    def _add_data(self, t_us, accl, gyr, rotor, quat):
+    def _add_data(self, t_us, accl, gyr, rotor):
         assert isinstance(t_us, int)
         if len(self.net_t_us) > 0:
             assert (
@@ -97,7 +90,6 @@ class NetInputBuffer:
         self.net_accl = np.append(self.net_accl, accl).reshape(-1, 3)
         self.net_gyr = np.append(self.net_gyr, gyr).reshape(-1, 3)
         self.net_rotor = np.append(self.net_rotor, rotor).reshape(-1, 4)
-        self.net_quat = np.append(self.net_quat, quat).reshape(-1, 4)
 
     # get network data by input size, extract from the latest
     def get_last_k_data(self, size):
@@ -112,20 +104,25 @@ class NetInputBuffer:
         """ This returns all the data from ts_begin to ts_end """
         assert isinstance(t_begin_us, int)
         assert isinstance(t_us_end, int)
-        begin_idx = np.where(self.net_t_us == t_begin_us)[0][0]
-        end_idx = np.where(self.net_t_us == t_us_end)[0][0]
+
+        begin_idx = np.argmin(np.abs(self.net_t_us - t_begin_us))
+        end_idx   = np.argmin(np.abs(self.net_t_us - t_us_end))
+
+        if abs(self.net_t_us[begin_idx] - t_begin_us) > 1000:
+            raise ValueError(f"No suitable begin_idx found within 1ms for t_begin_us={t_begin_us}")
+        if abs(self.net_t_us[end_idx] - t_us_end) > 1000:
+            raise ValueError(f"No suitable end_idx found within 1ms for t_us_end={t_us_end}")
         net_accl = self.net_accl[begin_idx : end_idx + 1, :]
         net_gyr = self.net_gyr[begin_idx : end_idx + 1, :]
         net_rotor = self.net_rotor[begin_idx : end_idx + 1, :]
-        net_quat = self.net_quat[begin_idx : end_idx + 1, :]
         net_t_us = self.net_t_us[begin_idx : end_idx + 1]
-        return net_accl, net_gyr, net_rotor, net_quat, net_t_us
+        return net_accl, net_gyr, net_rotor, net_t_us
 
     def throw_data_before(self, t_begin_us: int):
         """ throw away data with timestamp before ts_begin
         """
         assert isinstance(t_begin_us, int)
-        begin_idx = np.where(self.net_t_us == t_begin_us)[0][0]
+        begin_idx = np.argmin(np.abs(self.net_t_us - t_begin_us))
         self.net_accl = self.net_accl[begin_idx:, :]
         self.net_gyr = self.net_gyr[begin_idx:, :]
         self.net_rotor = self.net_rotor[begin_idx:, :]

@@ -87,8 +87,7 @@ class FilterManager:
                 "const_cov_val_z": args.const_cov_val_z, # sigma^2
                 "meascov_scale": args.meascov_scale,
                 "mahalanobis_factor": args.mahalanobis_factor,
-                "mahalanobis_fail_scale": args.mahalanobis_fail_scale,
-                "use_gt_atti": args.use_gt_atti
+                "mahalanobis_fail_scale": args.mahalanobis_fail_scale
             }
         )
 
@@ -117,12 +116,12 @@ class FilterManager:
             except Exception as e:
                 logging.exception(e)
 
-    def add_data_to_be_logged(self, ts, acc, gyr, with_update, thrust=None):
+    def add_data_to_be_logged(self, ts, acc, gyr, with_update):
         # filter data logger
         R_wi, v_wi, p_wi, ba, bg = self.runner.filter.get_evolving_state()
 
         # transform to body for easier evaluation
-        # Adapt this transformation for your case (no need for this transformation in the Blackbird dataset)
+        # Adapt this transformation for your case (no need for this transformation if imu frame is the same as body frame)
         R_ib = np.eye(3)
         p_ib = np.zeros((3,))
 
@@ -155,7 +154,7 @@ class FilterManager:
 
             ts_temp = ts.reshape(1, 1)
             temp = np.concatenate(
-                [v, p, ba, bg, acc, gyr, thrust, ts_temp, sigmas, inno, \
+                [v, p, ba, bg, acc, gyr, ts_temp, sigmas, inno, \
                     meas, pred, meas_sigma, inno_sigma, sigmasyawp], axis=0)
             vec_flat = np.append(R.ravel(), temp.ravel(), axis=0)
 
@@ -192,24 +191,22 @@ class FilterManager:
         # Loop through the entire dataset and feed the data to the imu runner
         n_data = self.input.dataset_size
         for i in progressbar.progressbar(range(n_data), redirect_stdout=True):
-        # for i in range(n_data):
             # obtain next raw IMU and thrust measurement from data loader
-            ts, acc_raw, gyr_raw, rotor_spd, gt_quat = self.input.get_datai(i, False)
+            ts, acc_raw, gyr_raw, rotor_spd = self.input.get_datai(i)
             t_us = from_sec_to_usec(ts)
 
             if self.runner.filter.initialized:
-                did_update = self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw, rotor_spd, gt_quat)
+                did_update = self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw, rotor_spd)
                 self.add_data_to_be_logged(
                     ts,
                     self.runner.last_acc,
                     self.runner.last_gyr,
-                    with_update=did_update,
-                    # thrust=self.runner.last_thrust
+                    with_update=did_update
                 )
             else:
                 # initialize to gt state R,v,p and offline calib
                 if not args.initialize_with_gt:
-                    self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw)
+                    self.runner.on_imu_measurement(t_us, gyr_raw, acc_raw, rotor_spd)
                 else:
                     if args.initialize_with_offline_calib:
                         init_ba = self.runner.icalib.accelBias
@@ -229,7 +226,7 @@ class FilterManager:
                         init_ba,
                         init_bg,
                     )
-                    self.runner.next_aug_t_us = t_us
+                    self.runner.next_update_t_us = t_us
                     self.runner.next_interp_t_us = t_us
 
         self.save_logs(args.save_as_npy)

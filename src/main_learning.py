@@ -57,10 +57,6 @@ if __name__ == "__main__":
     parser.add_argument("--switch_iter", type=int, default=50, help="switch to optimize covariance after this iter")
 
     # ------------------ data perturbation ------------------
-    add_bool_arg(parser, "perturb_orientation", default=True) # TODO: delete
-    parser.add_argument(
-        "--perturb_orientation_theta_range", type=float, default=5.0
-    )  # degrees
     add_bool_arg(parser, "perturb_accel", default=False)
     parser.add_argument("--perturb_accel_range", type=float, default=0.1)  # m/s^2
 

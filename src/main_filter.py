@@ -57,7 +57,7 @@ if __name__ == "__main__":
     net_groups.add_argument("--cpu", action="store_true")
 
     # ----------------------- filter params -----------------------
-    filter_group = parser.add_argument_group("filter tuning:")
+    filter_group = parser.add_argument_group("filter tuning")
 
     filter_group.add_argument("--update_freq", type=float, default=20.0)  # (Hz)
 
@@ -65,7 +65,7 @@ if __name__ == "__main__":
         "--sigma_na", type=float, default=1e-1
     )  # accel noise  m/s^2
     filter_group.add_argument(
-        "--sigma_ng", type=float, default=1e-4
+        "--sigma_ng", type=float, default=1e-3
     )  # gyro noise  rad/s
     filter_group.add_argument(
         "--sigma_nba", type=float, default=1e-2
@@ -85,11 +85,8 @@ if __name__ == "__main__":
     filter_group.add_argument("--init_bg_sigma", type=float, default=1e-4)  # rad/s
     filter_group.add_argument("--init_ba_sigma", type=float, default=1e-4)  # m/s^2
     filter_group.add_argument("--g_norm", type=float, default=9.7946)
-    filter_group.add_argument("--meascov_scale", type=float, default=10.0)
+    filter_group.add_argument("--meascov_scale", type=float, default=1.0)
 
-    add_bool_arg(
-        filter_group, "use_gt_atti", default=False
-    )  # use groudtruth attitude
     add_bool_arg(
         filter_group, "initialize_with_gt", default=True
     )  # initialize state with gt state

@@ -1,12 +1,3 @@
-"""
-This file is part of Learned Inertial Model Odometry.
-Copyright (C) 2023 Giovanni Cioffi <cioffi at ifi dot uzh dot ch>
-(Robotics and Perception Group, University of Zurich, Switzerland).
-This file is subject to the terms and conditions defined in the file
-'LICENSE', which is part of this source code package.
-"""
-
-
 import argparse
 import os
 
@@ -21,9 +12,9 @@ import src.utils.plotting as plotting
 from learning.utils.error_analyze import *
 
 from pyhocon import ConfigFactory
+import pandas as pd
 
 def process_sequence(seq_name, seq_path, dataset_name, result_dir):
-    # seq = os.path.basename(os.path.dirname(os.path.dirname(seq_path)))  # 获取序列名（如 MH_01）
     print(f"Processing sequence: {seq_name}")
     
     out_dir = os.path.join(result_dir, dataset_name, seq_name, 'pyfilter')
@@ -42,7 +33,6 @@ def process_sequence(seq_name, seq_path, dataset_name, result_dir):
     ba = bias[:, 4:]
     vel = np.loadtxt(vel_fn)
 
-    # dataset_dir = os.path.dirname(os.path.dirname(os.path.dirname(seq_path)))  # 回到 root
     gt_fn = os.path.join(seq_path, 'stamped_groundtruth_imu.txt')
     if not os.path.exists(gt_fn):
         print(f"Groundtruth file not found: {gt_fn}")
@@ -50,7 +40,6 @@ def process_sequence(seq_name, seq_path, dataset_name, result_dir):
     gt_traj = np.loadtxt(gt_fn)
     gt_ts = gt_traj[:, 0]
 
-    # 时间对齐
     if traj[0, 0] < gt_ts[0]:
         idxs = np.argwhere(traj[:, 0] > gt_ts[0])[0][0]
     else:
@@ -76,7 +65,7 @@ def process_sequence(seq_name, seq_path, dataset_name, result_dir):
 
     plot_dir = os.path.join(out_dir, "plots")
     os.makedirs(plot_dir, exist_ok=True)
-    # 绘图
+
     # xyz time plots
     plt.figure('XYZt view')
     xyztPlot('Position', traj[:,:4], 'estim. traj', gt_traj_interp[:,:4], 'gt')
@@ -110,6 +99,7 @@ def process_sequence(seq_name, seq_path, dataset_name, result_dir):
         est_euler=atti_est, gt_euler=atti_gt
     )
     print_rmse_summary(errors)
+    return errors
 
 
 if __name__ == "__main__":
@@ -123,6 +113,7 @@ if __name__ == "__main__":
     config = conf["test"]
 
     data_list = []
+    all_results = []
     for entry in config["data_list"]:
         root = entry["data_root"]
         drives = entry["data_drive"]
@@ -132,9 +123,17 @@ if __name__ == "__main__":
 
     for seq_name, seq_path in data_list:
         try:
-            process_sequence(seq_name, seq_path, args.dataset, args.result_dir)
+            errors = process_sequence(seq_name, seq_path, args.dataset, args.result_dir)
+            row = {
+                "ATE_our": errors['position_rmse'][-1],
+                "AVE_our": errors['velocity_rmse'][-1],
+                "RTE_our": errors['position_rrmse'][-1],
+                "RVE_our": errors['velocity_rrmse'][-1],
+            }
+            all_results.append(row)
         except Exception as e:
             print(f"Error processing {seq_path}: {e}")
 
-    plt.show()
+    df = pd.DataFrame(all_results)
+    df.to_csv("ekf_metrics.csv", index=False)
 

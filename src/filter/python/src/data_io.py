@@ -48,22 +48,7 @@ class DataIO:
             gt_traj = np.copy(f["traj_target"])
             gyro_bias = np.copy(f["gyro_bias"])
             accel_bias = np.copy(f["accel_bias"])
-            throttle = np.copy(f["throttle"])
             rotor_spd = np.copy(f["rotor_spd"])
-
-            # # for DIDO data
-            # gyro_raw = np.copy(f["gyr"])
-            # gyro_calib = np.copy(f["gyr"])
-            # accel_raw = np.copy(f["acc"])
-            # accel_calib = np.copy(f["acc"])
-            # gt_p = np.copy(f["gt_p"])
-            # gt_q = np.copy(f["gt_q"])
-            # gt_q = np.hstack((gt_q[:, 1:], gt_q[:, 0:1]))
-            # gt_v = np.copy(f["gt_v"])
-            # gt_vb = np.array([pose.xyzwQuatToMat(q).T @ v for v, q in zip(gt_v, gt_q)])
-            # gt_traj = np.hstack((gt_p, gt_q, gt_vb))
-            # gyro_bias = np.zeros((3,1))
-            # accel_bias = np.zeros((3,1))
 
         self.ts = np.round(ts, 5)
         self.accel_raw = accel_raw
@@ -86,18 +71,12 @@ class DataIO:
         gt_v = np.concatenate((gt_v, vf.reshape((1,3))), axis=0)
         self.gt_v = gt_v
 
-    def get_datai(self, idx, get_thrust=False):
+    def get_datai(self, idx):
         ts = self.ts[idx]
         acc = self.accel_raw[idx].reshape((3, 1))
         gyr = self.gyro_raw[idx].reshape((3, 1))
         rotor = self.rotor_spd[idx].reshape((4,1))
-        quat = self.gt_q[idx].reshape((4,1))
-        if get_thrust:
-            assert self.accel_raw.shape[0] == self.thrust.shape[0]
-            thr = self.thrust[idx].reshape((3, 1))
-            return ts, acc, gyr, thr, quat
-        else:
-            return ts, acc, gyr, rotor, quat
+        return ts, acc, gyr, rotor
 
     def get_imu_calibration(self):
         imu_calib = {}
