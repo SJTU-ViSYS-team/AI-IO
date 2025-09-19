@@ -8,7 +8,7 @@
 
 #### our dataset
 
-[here](https://github.com/Csfalpha/AI-IO/releases/download/dataset-v1.0/AI-IO_dataset.tar.gz)
+[here](https://github.com/Csfalpha/AI-IO/releases/download/v1.0/AI-IO_dataset.tar.gz)
 
 #### DIDO dataset
 
