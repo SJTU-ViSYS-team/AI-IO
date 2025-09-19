@@ -6,7 +6,7 @@ mcap_ros2_support==0.5.5
 numba==0.56.0rc1
 numpy==1.22.3
 pandas==1.4.2
-progressbar33==2.4
+progressbar2==4.0
 pyhocon==0.3.61
 pyquaternion==0.9.9
 scipy==1.7.3
