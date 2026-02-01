@@ -1,3 +1,7 @@
+'''
+Reference: https://github.com/uzh-rpg/learned_inertial_model_odometry/blob/master/src/learning/data_management/datasets.py
+'''
+
 from abc import ABC, abstractmethod
 import os
 import random

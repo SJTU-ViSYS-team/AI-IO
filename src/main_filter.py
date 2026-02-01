@@ -1,18 +1,10 @@
 """
-This file is part of Learned Inertial Model Odometry.
-Copyright (C) 2023 Giovanni Cioffi <cioffi at ifi dot uzh dot ch>
-(Robotics and Perception Group, University of Zurich, Switzerland).
-This file is subject to the terms and conditions defined in the file
-'LICENSE', which is part of this source code package.
-"""
-
-"""
 Main script. Use it to launch the filter.
 
 Propagation: Imu
-Update: Learned Model
+Update: Learned Velocity Model
 
-Reference: https://github.com/CathIAS/TLIO/blob/master/src/main_filter.py
+Reference: https://github.com/uzh-rpg/learned_inertial_model_odometry/blob/master/src/main_filter.py
 """
 
 import argparse

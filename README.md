@@ -1,30 +1,62 @@
 # AI-IO: An Aerodynamics-Inspired Real-Time Inertial Odometry for Quadrotors
 
-![](./img/AI-IO.jpg)
+[![Watch the video](https://img.youtube.com/vi/lKRBhg7UFSg/maxresdefault.jpg)](https://youtu.be/lKRBhg7UFSg)
 
-## Dataset and Environment
+## Table of Contents
 
-### Dataset Preparation
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Citation](#citation)
+- [Acknowledgments](#acknowledgments)
 
-#### our dataset
+## Installation
 
-[here](https://github.com/Csfalpha/AI-IO/releases/download/v1.0/AI-IO_dataset.tar.gz)
+### Environment Setup
 
-#### DIDO dataset
-
-[here](https://github.com/zhangkunyi/DIDO)
-
-### Environment Build
-
-See `requirements.txt` for environment requirements.
-
-## Quick Start: Run with Default Configurations
-
-### Training
-
+1. Clone the repository:
+```bash
+git clone https://github.com/Csfalpha/AI-IO.git
+cd AI-IO
 ```
+
+2. Create a conda environment (recommended):
+```bash
+conda create -n AI-IO python=3.10
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+### Dependencies
+
+See [requirements.txt](requirements.txt) for complete dependencies and their version specifications.
+
+## Quick Start
+
+### 1. Data Preparation
+
+#### Option A: Use Pre-processed AI-IO Dataset
+
+Download the official AI-IO dataset:
+```bash
+# Download and extract
+wget https://github.com/Csfalpha/AI-IO/releases/download/v1.0/AI-IO_dataset.tar.gz
+tar -xzf AI-IO_dataset.tar.gz
+```
+
+#### Option B: Use DIDO Dataset
+
+Alternatively, use the DIDO dataset from [here](https://github.com/zhangkunyi/DIDO).
+
+### 2. Training a New Model
+
+Train the network with default configurations:
+
+```bash
 python src/main_learning.py \
-	--data_config=config/our2.conf \
+    --data_config=config/our2.conf \
     --out_dir=results \
     --dataset=our2 \
     --mode=train \
@@ -33,13 +65,23 @@ python src/main_learning.py \
     --window_time=1
 ```
 
-For the AI-IO dataset, our pre-trained weights is [here](https://github.com/Csfalpha/AI-IO/releases/download/dataset-v1.0/checkpoint_open.pt)
+**Common training arguments:**
+- `--data_config`: Path to dataset configuration file
+- `--out_dir`: Output directory for checkpoints and logs
+- `--dataset`: Dataset name (our2, DIDO, etc.)
+- `--window_time`: Time window for sequence sampling (seconds)
+- `--continue_from`: Resume training from checkpoint
 
-### Testing
 
-```
+### 3. Evaluation
+
+#### 3a. Test the Learned Model
+
+Evaluate a trained model on test data:
+
+```bash
 python src/main_learning.py \
-	--data_config=config/our2.conf \
+    --data_config=config/our2.conf \
     --out_dir=results \
     --dataset=our2 \
     --mode=test \
@@ -50,38 +92,47 @@ python src/main_learning.py \
     --show_plots
 ```
 
+**Note:** Pre-trained weights are available [here](https://github.com/Csfalpha/AI-IO/releases/download/dataset-v1.0/checkpoint_open.pt)
 
+#### 3b. Run Extended Kalman Filter
 
-### EKF
+Estimate full state trajectories using the learned model with EKF:
 
-run EKF
-
-```
+```bash
 python src/main_filter.py \
-	--data_config=config/our2.conf \
-	--out_dir=results \
-	--dataset=our2 \
-	--checkpoint_fn=checkpoint_yours.pt \
-	--model_param_fn=model_net_parameters.json
+    --data_config=config/our2.conf \
+    --out_dir=results \
+    --dataset=our2 \
+    --checkpoint_fn=checkpoint_yours.pt \
+    --model_param_fn=model_net_parameters.json
 ```
 
-plot EKF ruslts
+**EKF Configuration Options:**
+- `--checkpoint_fn`: Path to trained network weights
+- `--model_param_fn`: Model architecture parameters (JSON format)
 
-```
+#### 3c. Visualize Filter Results
+
+Generate plots and performance metrics:
+
+```bash
 python src/filter/python/plot_filter_output.py \
-	--data_config=config/our2.conf \
-	--result_dir=results \
-	--dataset=our2
+    --data_config=config/our2.conf \
+    --result_dir=results \
+    --dataset=our2
 ```
 
+## Citation
 
+If you use AI-IO in your research, please cite our paper:
 
-## Credits
+```bibtex
 
-This repo uses some external open-source code:
+```
 
-* [IMO](https://github.com/uzh-rpg/learned_inertial_model_odometry)
+## Acknowledgments
 
-Refer to each open-source code for the corresponding license.
+This project builds upon excellent prior work:
 
-If you note that we missed the information about the use of any other open-source code, please open an issue.
+- [Learned Inertial Model Odometry (IMO)](https://github.com/uzh-rpg/learned_inertial_model_odometry)
+- [TLIO](https://github.com/CathIAS/TLIO)

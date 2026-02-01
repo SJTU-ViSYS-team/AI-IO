@@ -1,13 +1,6 @@
 """
-This file is part of Learned Inertial Model Odometry.
-Copyright (C) 2023 Giovanni Cioffi <cioffi at ifi dot uzh dot ch>
-(Robotics and Perception Group, University of Zurich, Switzerland).
-This file is subject to the terms and conditions defined in the file
-'LICENSE', which is part of this source code package.
-"""
-
-"""
 Util functions for dataset preparation
+Reference: https://github.com/uzh-rpg/learned_inertial_model_odometry/blob/master/src/learning/data_management/prepare_datasets/utils.py
 """
 
 import numpy as np
