@@ -15,7 +15,7 @@
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/Csfalpha/AI-IO.git
+git clone https://github.com/SJTU-ViSYS-team/AI-IO.git
 cd AI-IO
 ```
 
@@ -42,7 +42,7 @@ See [requirements.txt](requirements.txt) for complete dependencies and their ver
 Download the official AI-IO dataset:
 ```bash
 # Download and extract
-wget https://github.com/Csfalpha/AI-IO/releases/download/v1.0/AI-IO_dataset.tar.gz
+wget https://github.com/SJTU-ViSYS-team/AI-IO/releases/download/v1.0/AI-IO_dataset.tar.gz
 tar -xzf AI-IO_dataset.tar.gz
 ```
 
@@ -92,7 +92,7 @@ python src/main_learning.py \
     --show_plots
 ```
 
-**Note:** Pre-trained weights are available [here](https://github.com/Csfalpha/AI-IO/releases/download/dataset-v1.0/checkpoint_open.pt)
+**Note:** Pre-trained weights are available [here](https://github.com/SJTU-ViSYS-team/AI-IO/releases/download/dataset-v1.0/checkpoint_open.pt)
 
 #### 3b. Run Extended Kalman Filter
 
