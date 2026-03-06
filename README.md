@@ -1,6 +1,7 @@
 # AI-IO: An Aerodynamics-Inspired Real-Time Inertial Odometry for Quadrotors
 
 [Project webpage](https://csfalpha.github.io/AI-IO.github.io/) is alive.
+
 Click below to view the video:
 [![Watch the video](https://img.youtube.com/vi/lKRBhg7UFSg/maxresdefault.jpg)](https://youtu.be/lKRBhg7UFSg)
 
