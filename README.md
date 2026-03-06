@@ -1,6 +1,9 @@
 # AI-IO: An Aerodynamics-Inspired Real-Time Inertial Odometry for Quadrotors
 
+[Project webpage](https://csfalpha.github.io/AI-IO.github.io/) is alive.
+Click below to view the video:
 [![Watch the video](https://img.youtube.com/vi/lKRBhg7UFSg/maxresdefault.jpg)](https://youtu.be/lKRBhg7UFSg)
+
 
 ## Table of Contents
 
@@ -127,7 +130,12 @@ python src/filter/python/plot_filter_output.py \
 If you use AI-IO in your research, please cite our paper:
 
 ```bibtex
-
+@article{cui2026ai,
+  title={AI-IO: An Aerodynamics-Inspired Real-Time Inertial Odometry for Quadrotors},
+  author={Cui, Jiahao and Yu, Feng and Zhang, Linzuo and Hu, Yu and Zou, Danping},
+  journal={arXiv preprint arXiv:2603.00597},
+  year={2026}
+}
 ```
 
 ## Acknowledgments
